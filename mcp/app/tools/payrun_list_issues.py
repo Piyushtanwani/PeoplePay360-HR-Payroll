@@ -25,9 +25,19 @@ async def payrun_list_issues_tool(
     token: str,
     claims: TokenClaims,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[str], Optional[str]]:
-    payrun_id = args.get("payrunId")
+    payrun_id = args.get("payrunId") or args.get("id")
     if not payrun_id:
-        return "Please provide a payrunId.", [], "payrun_issue", None
+        try:
+            pr_res = await backend_client.get("/api/payruns", params={"size": 5}, token=token)
+            pr_items = pr_res.get("content", []) if isinstance(pr_res, dict) else (pr_res if isinstance(pr_res, list) else [])
+            if pr_items:
+                drafts = [p for p in pr_items if p.get("state") in ("DRAFT", "PENDING_APPROVAL", "COMPUTED")]
+                payrun_id = (drafts[0] if drafts else pr_items[0]).get("id")
+        except Exception:
+            payrun_id = None
+
+    if not payrun_id:
+        return "Please provide a payrunId or ensure at least one payrun exists.", [], "payrun_issue", None
 
     params: Dict[str, Any] = {}
     if args.get("severity"):

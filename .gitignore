@@ -16,6 +16,8 @@
 **/*-local.yml
 **/*-local.yaml
 **/application-local.*
+backend/src/main/resources/application.properties
+!backend/src/main/resources/application.properties.example
 **/secrets.properties
 **/secrets.json
 **/secrets.yml
@@ -126,3 +128,5 @@ Thumbs.db
 # ─────────────────────────────────────────────────────────────────────────────
 docs/
 /Documents
+
+/application.properties

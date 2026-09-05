@@ -70,7 +70,7 @@ async def employee_search_tool(
     # report a count. Personal details are stripped by model_summary before they reach the context.
     rows_for_model = model_summary(
         items,
-        ["employeeNo", "displayName", "jobTitle", "departmentName", "employeeType", "active"],
+        ["id", "employeeNo", "displayName", "jobTitle", "departmentName", "employeeType", "active"],
     )
     summary_text = (
         f"{total} employees match. Showing the first {len(items)}.\n"

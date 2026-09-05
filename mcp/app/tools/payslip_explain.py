@@ -24,13 +24,55 @@ async def payslip_explain_tool(
     token: str,
     claims: TokenClaims,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[str], Optional[str]]:
-    payslip_id = args.get("payslipId")
-    if not payslip_id:
-        return "Please provide a payslipId.", [], "payslip", None
+    raw_id = args.get("payslipId") or args.get("id")
+    data = None
+    resolved_id: Optional[int] = None
 
-    data = await backend_client.get(f"/api/payslips/{payslip_id}", token=token)
+    if raw_id:
+        try:
+            numeric_id = int(str(raw_id).replace("PS-", "").replace("E-", ""))
+            data = await backend_client.get(f"/api/payslips/{numeric_id}", token=token)
+            if data and data.get("id"):
+                resolved_id = int(data["id"])
+        except Exception:
+            data = None
+
+    # If payslip was not directly found by id (e.g. employeeId or name was passed)
     if not data:
-        return f"Payslip #{payslip_id} was not found.", [], "payslip", str(payslip_id)
+        emp_query = args.get("employeeId") or args.get("employeeName") or args.get("name") or raw_id
+        params = {}
+        if emp_query:
+            try:
+                clean_str = str(emp_query).strip()
+                if clean_str.upper().startswith("E-"):
+                    clean_str = clean_str[2:]
+                if clean_str.isdigit():
+                    params["employeeId"] = int(clean_str)
+            except Exception:
+                pass
+
+            if "employeeId" not in params:
+                emp_res = await backend_client.get("/api/employees", params={"q": str(emp_query), "size": 1}, token=token)
+                emp_items = emp_res.get("content", []) if isinstance(emp_res, dict) else (emp_res if isinstance(emp_res, list) else [])
+                if emp_items and emp_items[0].get("id"):
+                    params["employeeId"] = emp_items[0]["id"]
+
+        try:
+            ps_res = await backend_client.get("/api/payslips", params=params, token=token)
+            ps_items = ps_res.get("content", []) if isinstance(ps_res, dict) else (ps_res if isinstance(ps_res, list) else [])
+            if ps_items:
+                latest_id = ps_items[0].get("id")
+                if latest_id:
+                    data = await backend_client.get(f"/api/payslips/{latest_id}", token=token)
+                    if data and data.get("id"):
+                        resolved_id = int(data["id"])
+        except Exception:
+            pass
+
+    if not data or not resolved_id:
+        return "No payslip was found to explain.", [], "payslip", str(raw_id) if raw_id else None
+
+    payslip_id = resolved_id
 
     formatted = format_tool_result(data)
     ps = formatted["ui_view"]

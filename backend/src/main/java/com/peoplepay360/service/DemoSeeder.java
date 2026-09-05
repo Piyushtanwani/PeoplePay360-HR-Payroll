@@ -201,7 +201,12 @@ public class DemoSeeder implements ApplicationRunner {
             Employee e = newEmployee(name, d.getId(), schedule.getId(), email);
             e.setJobTitle(jobTitle);
             e = employees.save(e);
-            runningContract(e, structure, schedule, new BigDecimal(String.valueOf(40000 + i * 500)), d.getId(), jobTitle);
+            LocalDate contractEnd = null;
+            if (i == 31) contractEnd = LocalDate.of(2026, 11, 20); // 75 days ahead
+            else if (i == 32) contractEnd = LocalDate.of(2026, 12, 15); // 100 days ahead
+            else if (i == 33) contractEnd = LocalDate.of(2027, 1, 31); // 147 days ahead
+            else if (i == 34) contractEnd = LocalDate.of(2027, 3, 31); // 206 days ahead
+            runningContract(e, structure, schedule, new BigDecimal(String.valueOf(40000 + i * 500)), d.getId(), jobTitle, contractEnd);
             if (i != 7) bank(e); // one employee without bank details for the blocker demo
         }
 
@@ -441,12 +446,17 @@ public class DemoSeeder implements ApplicationRunner {
     }
     private void runningContract(Employee e, SalaryStructure s, WorkingSchedule sch, BigDecimal wage, Long deptId,
                                  String jobTitle) {
+        runningContract(e, s, sch, wage, deptId, jobTitle, null);
+    }
+    private void runningContract(Employee e, SalaryStructure s, WorkingSchedule sch, BigDecimal wage, Long deptId,
+                                 String jobTitle, LocalDate endDate) {
         Contract c = new Contract();
         c.setReference(String.format("C-%04d", contracts.count() + 1));
         c.setEmployeeId(e.getId());
         c.setWage(wage);
         c.setWageType("MONTHLY");
         c.setStartDate(LocalDate.of(2025, 1, 1));
+        if (endDate != null) c.setEndDate(endDate);
         c.setState("RUNNING");
         c.setWorkingScheduleId(sch.getId());
         c.setSalaryStructureId(s.getId());

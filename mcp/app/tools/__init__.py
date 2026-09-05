@@ -12,7 +12,9 @@ from app.tools import (
     payslip_explain,
     dashboard_kpis,
     contract_list_expiring,
+    contract_get_current,
     candidate_compare,
+    system_tools_list,
 )
 
 __all__ = [
@@ -28,5 +30,7 @@ __all__ = [
     "payslip_explain",
     "dashboard_kpis",
     "contract_list_expiring",
+    "contract_get_current",
     "candidate_compare",
+    "system_tools_list",
 ]

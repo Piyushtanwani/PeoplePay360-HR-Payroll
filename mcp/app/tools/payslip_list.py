@@ -79,7 +79,7 @@ async def payslip_list_tool(
 
     rows_for_model = model_summary(
         payslips,
-        ["employeeName", "employeeNo", "periodStart", "periodEnd", "gross", "deductions", "net"],
+        ["id", "employeeName", "employeeNo", "periodStart", "periodEnd", "gross", "deductions", "net"],
     )
     summary_text = (
         f"Retrieved {len(payslips)} payslip(s), total net ₹{total_net:,.2f}.\n"
