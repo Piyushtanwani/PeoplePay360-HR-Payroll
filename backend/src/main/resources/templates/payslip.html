@@ -38,9 +38,9 @@
     <thead><tr><th>Rule</th><th>Category</th><th class="amount">Amount</th></tr></thead>
     <tbody>
       <tr th:each="line : ${lines}">
-        <td th:text="${line.ruleName()}">Rule</td>
-        <td class="cat" th:text="${line.category()}">CAT</td>
-        <td class="amount" th:text="${#numbers.formatDecimal(line.amount(), 1, 2)}">0.00</td>
+        <td th:text="${line.ruleName}">Rule</td>
+        <td class="cat" th:text="${line.category}">CAT</td>
+        <td class="amount" th:text="${#numbers.formatDecimal(line.amount, 1, 2)}">0.00</td>
       </tr>
     </tbody>
     <tbody class="totals">

@@ -6,23 +6,24 @@ Spring Boot backend for the PeoplePay360 HR and Payroll platform. It is the sing
 
 Java 21, Spring Boot 3.3, Spring Security (JWT resource server, RS256), Spring Data JPA, Flyway, PostgreSQL 16, exp4j (salary formulas), OpenHTMLtoPDF (payslip PDFs). No Lombok. Build with Maven.
 
-## Run with Docker (recommended)
+## Prerequisites
 
-From the repository root:
+- Java 21 or newer
+- Maven (the committed `mvnw` wrapper works too)
+- A running PostgreSQL 16 with a database and a role the app can use (the role needs rights to create the `btree_gist` extension, i.e. superuser in development)
+- Optional for the assistant: Ollama running locally (`ollama pull llama3.1:8b`)
+
+## Build
 
 ```
-docker compose up --build
+mvn clean package
 ```
 
-This starts PostgreSQL, Mailpit, and the backend. Then:
+Produces `target/peoplepay360-backend.jar`.
 
-- API: http://localhost:8080 (Swagger UI at http://localhost:8080/swagger-ui.html)
-- Mailpit inbox: http://localhost:8025
-- The `mcp` and `frontend` services are behind the `full` profile; add `--profile full` once those folders exist.
+## Run
 
-## Run locally against a PostgreSQL you already have
-
-Create a database and a role, then run the jar with matching environment variables.
+Create the database, then run with matching environment variables:
 
 ```
 createdb peoplepay
@@ -34,14 +35,24 @@ export DB_USER=<your_role>
 export DB_PASSWORD=<your_password>
 export SPRING_PROFILES_ACTIVE=demo
 export APP_ENCRYPTION_KEY=$(python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())")
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
 
+Or run the packaged jar directly:
+
+```
+java -jar target/peoplepay360-backend.jar
+```
+
+Then:
+
+- API: http://localhost:8080 (Swagger UI at http://localhost:8080/swagger-ui.html)
+- Configuration lives in `src/main/resources/application.properties` and the profile files `application-demo.properties` and `application-prod.properties`; every value can be overridden by the environment variables in `.env.example`.
+
 Notes:
-- The role needs privileges to create the `btree_gist` extension (superuser in development).
 - If `APP_ENCRYPTION_KEY` is empty in the demo profile, a fixed development key is derived and a warning is logged. Set a real base64-encoded 32-byte key in production.
 - The RS256 signing key is generated on first start and cached at `./keys/jwt.pem`.
-- `/actuator/health` reports DOWN when no SMTP server is reachable; this does not affect the API. Use Mailpit or set `MAIL_HOST`/`MAIL_PORT`.
+- `/actuator/health` reports DOWN when no SMTP server is reachable; this does not affect the API. Point `MAIL_HOST`/`MAIL_PORT` at a mail server to clear it.
 
 ## Demo accounts (demo profile, seeded on first start)
 
