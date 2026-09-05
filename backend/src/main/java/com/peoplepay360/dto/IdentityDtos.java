@@ -21,6 +21,7 @@ public class IdentityDtos {
                              Boolean sendInvite) {}
     public record CreateUserResult(UserDetail user, boolean inviteSent, String inviteMessage) {}
     public record SetPasswordRequest(String token, String password) {}
+    public record ForgotPasswordRequest(@Email @NotBlank String email) {}
     /** Employees with no login yet, offered when creating a user. */
     public record InvitableEmployee(Long employeeId, String employeeNo, String displayName, String workEmail,
                                     String jobTitle, String departmentName) {}

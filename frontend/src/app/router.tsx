@@ -3,6 +3,7 @@ import { AppShell } from './shell/AppShell'
 import { RequireAuth, RequirePermission } from './routes/guards'
 import { RouteError } from './routes/RouteError'
 import { LoginPage } from '@/features/auth/LoginPage'
+import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
 import { SetPasswordPage } from '@/features/auth/SetPasswordPage'
 import { HomeRoute } from '@/features/dashboard/HomeRoute'
 import { EmployeesPage } from '@/features/employees/EmployeesPage'
@@ -31,6 +32,7 @@ const gate = (permission: string | string[], element: JSX.Element) => (
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage />, errorElement: <RouteError /> },
   { path: '/set-password', element: <SetPasswordPage />, errorElement: <RouteError /> },
   {
     path: '/',
