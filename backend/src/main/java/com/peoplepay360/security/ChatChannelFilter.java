@@ -3,7 +3,7 @@ package com.peoplepay360.security;
 import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
-import com.peoplepay360.identity.AppUserRepository;
+import com.peoplepay360.repository.AppUserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

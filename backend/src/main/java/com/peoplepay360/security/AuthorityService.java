@@ -1,9 +1,9 @@
 package com.peoplepay360.security;
 
 import com.peoplepay360.config.CacheConfig;
-import com.peoplepay360.identity.AppUser;
-import com.peoplepay360.identity.AppUserRepository;
-import com.peoplepay360.identity.EffectivePermissionRepository;
+import com.peoplepay360.model.AppUser;
+import com.peoplepay360.repository.AppUserRepository;
+import com.peoplepay360.repository.EffectivePermissionRepository;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.GrantedAuthority;

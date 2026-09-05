@@ -2,7 +2,7 @@ package com.peoplepay360.security;
 
 import com.peoplepay360.common.ApiException;
 import com.peoplepay360.common.ErrorCode;
-import com.peoplepay360.identity.EffectivePermissionRepository;
+import com.peoplepay360.repository.EffectivePermissionRepository;
 import org.springframework.stereotype.Component;
 
 /** Prevents any change that would leave the platform with zero active holders of permission.grant. */
