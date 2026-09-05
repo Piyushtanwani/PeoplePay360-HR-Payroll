@@ -181,6 +181,35 @@ export function DashboardPage() {
         </Card>
 
         <Card>
+          <CardHeader title="Time off overview" subtitle="Source: time off requests and allocations" />
+          <table className="w-full text-body">
+            <thead>
+              <tr className="border-b border-separator text-left text-xs2 uppercase tracking-wide text-label2">
+                <th className="px-5 py-2">Type</th>
+                <th className="px-5 py-2 text-right">Approved days</th>
+                <th className="px-5 py-2 text-right">Pending</th>
+                <th className="px-5 py-2 text-right">Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.timeOffOverview ?? []).map((row) => (
+                <tr key={row.typeName} className="border-b border-separator/60 last:border-0">
+                  <td className="px-5 py-2">{row.typeName}</td>
+                  <td className="tnum px-5 py-2 text-right">{num(row.approvedDays)}</td>
+                  <td className="tnum px-5 py-2 text-right">{num(row.pending)}</td>
+                  <td className="tnum px-5 py-2 text-right">
+                    {row.requiresAllocation ? num(row.remainingBalance ?? 0) : <span className="text-label2">N/A</span>}
+                  </td>
+                </tr>
+              ))}
+              {(data?.timeOffOverview ?? []).length === 0 ? (
+                <tr><td colSpan={4} className="px-5 py-6 text-center text-sm2 text-label2">No leave types configured.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </Card>
+
+        <Card>
           <CardHeader title="Department overview" subtitle="Source: employee, contract and payslip totals" />
           <table className="w-full text-body">
             <thead>

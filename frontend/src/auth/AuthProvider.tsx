@@ -8,6 +8,11 @@ interface AuthState {
   token: string | null
   me: MeResponse | null
   loading: boolean
+  /** True when a previously valid session was rejected, so the login page can say so. */
+  expired: boolean
+  /** Set when the backend is unreachable; the session is kept, not discarded. */
+  sessionError: string | null
+  retry: () => void
   permissions: Set<string>
   can: (code: string) => boolean
   canAny: (codes: string[]) => boolean
@@ -27,27 +32,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = React.useState<string | null>(tokenRef.current)
   const [me, setMe] = React.useState<MeResponse | null>(null)
   const [loading, setLoading] = React.useState(Boolean(tokenRef.current))
+  const [expired, setExpired] = React.useState(false)
+  const [sessionError, setSessionError] = React.useState<string | null>(null)
 
   const clear = React.useCallback(() => {
     tokenRef.current = null
     sessionStorage.removeItem(TOKEN_KEY)
     setToken(null)
     setMe(null)
-    queryClient.clear()
+    // Deferred: a 401 can land mid-render, and clearing the cache synchronously
+    // then tears down the very components still rendering from it.
+    queueMicrotask(() => queryClient.clear())
   }, [queryClient])
 
   React.useEffect(() => {
     configureClient({ getToken: () => tokenRef.current, onUnauthenticated: clear })
   }, [clear])
 
-  const loadMe = React.useCallback(async () => {
+  /**
+   * Only a 401 means the session is gone. A network blip or a 5xx must not sign the
+   * user out, so those retry briefly and otherwise surface as a recoverable error.
+   */
+  const loadMe = React.useCallback(async (attempt = 0): Promise<void> => {
     try {
       const response = await api.get<MeResponse>('/api/auth/me')
       setMe(response)
+      setSessionError(null)
       setCurrency(response.settings.currency)
+      setLoading(false)
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) clear()
-    } finally {
+      const status = error instanceof ApiError ? error.status : 0
+      if (status === 401) {
+        setExpired(Boolean(tokenRef.current))
+        clear()
+        setLoading(false)
+        return
+      }
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)))
+        return loadMe(attempt + 1)
+      }
+      // Keep the token: the session is probably fine, the backend is not reachable.
+      setSessionError('Cannot reach the server. Check that the backend is running.')
       setLoading(false)
     }
   }, [clear])
@@ -63,6 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       tokenRef.current = response.accessToken
       sessionStorage.setItem(TOKEN_KEY, response.accessToken)
       setToken(response.accessToken)
+      setExpired(false)
+      setSessionError(null)
       setLoading(true)
       await loadMe()
     },
@@ -71,8 +99,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = React.useCallback(() => {
     void api.post('/api/auth/logout').catch(() => {})
+    setExpired(false)
+    setSessionError(null)
     clear()
   }, [clear])
+
+  const retry = React.useCallback(() => {
+    setSessionError(null)
+    setLoading(true)
+    void loadMe()
+  }, [loadMe])
 
   const permissions = React.useMemo(() => new Set(me?.permissions ?? []), [me])
   const value = React.useMemo<AuthState>(
@@ -80,6 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       me,
       loading,
+      expired,
+      sessionError,
+      retry,
       permissions,
       can: (code: string) => permissions.has(code),
       canAny: (codes: string[]) => codes.some((c) => permissions.has(c)),
@@ -89,7 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: me?.user ?? null,
       employeeId: me?.user.employeeId ?? null,
     }),
-    [token, me, loading, permissions, login, logout, loadMe],
+    [token, me, loading, expired, sessionError, retry, permissions, login, logout, loadMe],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

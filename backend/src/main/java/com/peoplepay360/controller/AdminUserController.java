@@ -5,6 +5,7 @@ import com.peoplepay360.dto.IdentityDtos.*;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import com.peoplepay360.service.AdminUserService;
 import com.peoplepay360.service.GrantService;
 
@@ -25,7 +26,14 @@ public class AdminUserController {
     @GetMapping("/users/{id}")
     public UserDetail get(@PathVariable Long id) { return users.get(id); }
     @PostMapping("/users")
-    public UserDetail create(@Valid @RequestBody CreateUser in) { return users.create(in); }
+    public CreateUserResult create(@Valid @RequestBody CreateUser in) { return users.create(in); }
+
+    @PostMapping("/users/{id}/resend-invite")
+    public CreateUserResult resendInvite(@PathVariable Long id) { return users.resendInvite(id); }
+
+    /** Active employees without a login, offered when creating a user. */
+    @GetMapping("/users/invitable-employees")
+    public List<InvitableEmployee> invitableEmployees() { return users.invitableEmployees(); }
     @PutMapping("/users/{id}")
     public UserDetail update(@PathVariable Long id, @RequestBody UpdateUser in) { return users.update(id, in); }
     @PostMapping("/users/{id}/role")

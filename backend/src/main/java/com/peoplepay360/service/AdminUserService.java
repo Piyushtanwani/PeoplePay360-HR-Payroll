@@ -35,10 +35,21 @@ public class AdminUserService {
     private final AuthorityService authorityService;
     private final LockoutGuard lockoutGuard;
     private final AuditService audit;
+    private final UserInviteService invites;
+    private final com.peoplepay360.config.AppProperties props;
+    private final com.peoplepay360.repository.EmployeeRepository employees;
+    private final com.peoplepay360.repository.DepartmentRepository departments;
 
     public AdminUserService(AppUserRepository users, RoleRepository roles, UserPermissionGrantRepository grants,
                             EffectivePermissionRepository effective, PasswordEncoder encoder,
-                            AuthorityService authorityService, LockoutGuard lockoutGuard, AuditService audit) {
+                            AuthorityService authorityService, LockoutGuard lockoutGuard, AuditService audit,
+                            UserInviteService invites, com.peoplepay360.config.AppProperties props,
+                            com.peoplepay360.repository.EmployeeRepository employees,
+                            com.peoplepay360.repository.DepartmentRepository departments) {
+        this.invites = invites;
+        this.props = props;
+        this.employees = employees;
+        this.departments = departments;
         this.users = users;
         this.roles = roles;
         this.grants = grants;
@@ -72,18 +83,71 @@ public class AdminUserService {
 
     @PreAuthorize("hasAuthority('user.create')")
     @Transactional
-    public UserDetail create(CreateUser in) {
+    public CreateUserResult create(CreateUser in) {
         Role role = roles.findByCode(in.roleCode()).orElseThrow(() -> ApiException.validation("Unknown role"));
+        users.findByEmailIgnoreCase(in.email()).ifPresent(x -> {
+            throw ApiException.conflict("A user with that email already exists.");
+        });
+        if (in.employeeId() != null) {
+            users.findByEmployeeId(in.employeeId()).ifPresent(x -> {
+                throw ApiException.conflict("That employee already has a login: " + x.getEmail());
+            });
+        }
+        boolean invite = in.sendInvite() == null || in.sendInvite();
+
         AppUser u = new AppUser();
         u.setEmail(in.email());
         u.setDisplayName(in.displayName());
         u.setRole(role);
         u.setEmployeeId(in.employeeId());
         u.setActive(in.active() == null || in.active());
-        u.setPasswordHash(encoder.encode(in.password() == null ? "ChangeMe@123" : in.password()));
+        // With an invite the account has no usable password until the link is redeemed.
+        u.setPasswordHash(encoder.encode(invite
+                ? java.util.UUID.randomUUID() + java.util.UUID.randomUUID().toString()
+                : in.password()));
         u = users.save(u);
         audit.record(Channel.UI, "CREATE_USER", "user", u.getId().toString(), "ALLOW", null, null, null);
-        return toDetail(u);
+
+        if (!invite) {
+            return new CreateUserResult(toDetail(u), false, "Password set manually.");
+        }
+        String token = invites.mint(u.getId(), "INVITE", props.getInviteTtlHours());
+        boolean sent = invites.sendInvite(u, token, false);
+        return new CreateUserResult(toDetail(u), sent, sent
+                ? "Invite emailed to " + u.getEmail()
+                : "User created, but the invite email could not be sent. Use Resend invite.");
+    }
+
+    /** Re-sends the set-password link, invalidating any earlier one. */
+    @PreAuthorize("hasAuthority('user.update')")
+    @Transactional
+    public CreateUserResult resendInvite(Long id) {
+        AppUser u = users.findById(id).orElseThrow(() -> ApiException.notFound("user"));
+        String token = invites.mint(u.getId(), "INVITE", props.getInviteTtlHours());
+        boolean sent = invites.sendInvite(u, token, false);
+        audit.record(Channel.UI, "RESEND_INVITE", "user", u.getId().toString(),
+                sent ? "ALLOW" : "DENY", null, null, null);
+        return new CreateUserResult(toDetail(u), sent, sent
+                ? "Invite re-sent to " + u.getEmail()
+                : "Could not send the email. Check the SMTP settings.");
+    }
+
+    /** Employees who do not yet have a login, for the create-user picker. */
+    @PreAuthorize("hasAuthority('user.create')")
+    @Transactional(readOnly = true)
+    public List<InvitableEmployee> invitableEmployees() {
+        java.util.Set<Long> linked = users.findAll().stream()
+                .map(AppUser::getEmployeeId).filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        return employees.findAll().stream()
+                .filter(e -> e.isActive() && !linked.contains(e.getId()))
+                .map(e -> new InvitableEmployee(e.getId(), e.getEmployeeNo(), e.getDisplayName(),
+                        e.getWorkEmail(), e.getJobTitle(),
+                        e.getDepartmentId() == null ? null
+                                : departments.findById(e.getDepartmentId())
+                                    .map(com.peoplepay360.model.Department::getName).orElse(null)))
+                .sorted(java.util.Comparator.comparing(InvitableEmployee::displayName))
+                .toList();
     }
 
     @PreAuthorize("hasAuthority('user.update')")

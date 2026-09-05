@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Tabs from '@radix-ui/react-tabs'
-import { Search, Sparkles } from 'lucide-react'
+import { Mail, Plus, Search, Sparkles, UserPlus } from 'lucide-react'
 import { api, ApiError } from '@/api/client'
 import { useAuth } from '@/auth/AuthProvider'
 import {
@@ -9,7 +9,7 @@ import {
   TextArea, TextInput, Tooltip, useToast,
 } from '@/components/ui'
 import { fmtDateTime } from '@/lib/format'
-import type { AdminUser, AuditEvent, Grant, Page, PermissionCatalogItem, RoleCode } from '@/api/types'
+import type { AdminUser, AuditEvent, CreateUserResult, Grant, InvitableEmployee, Page, PermissionCatalogItem, RoleCode } from '@/api/types'
 
 const TAB_CLASS = 'rounded-control px-3 py-1.5 text-sm2 font-medium text-label2 data-[state=active]:bg-surface data-[state=active]:text-label data-[state=active]:shadow-sm'
 const ROLES: { value: RoleCode; label: string }[] = [
@@ -31,11 +31,16 @@ function expiryToIso(value: string) {
 export function UsersPage() {
   const [q, setQ] = React.useState('')
   const [selected, setSelected] = React.useState<AdminUser | null>(null)
+  const [creating, setCreating] = React.useState(false)
   const query = useQuery({ queryKey: ['admin', 'users', q], queryFn: () => api.page<AdminUser>('/api/admin/users', { q, size: 100 }) })
 
   return (
     <>
-      <PageHeader title="Users & access" description="Effective permissions are the role baseline plus explicit grants, minus denials." />
+      <PageHeader
+        title="Users & access"
+        description="A login is created for an employee who is already onboarded. They receive an email to set their own password."
+        actions={<Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>New user</Button>}
+      />
 
       <div className="mb-4 max-w-sm">
         <div className="relative">
@@ -62,7 +67,117 @@ export function UsersPage() {
       </Card>
 
       {selected ? <UserSheet user={selected} onClose={() => setSelected(null)} /> : null}
+      {creating ? <NewUserSheet onClose={() => setCreating(false)} /> : null}
     </>
+  )
+}
+
+/**
+ * Creating a login starts from an employee record: the picker only lists onboarded,
+ * active employees who do not already have an account.
+ */
+function NewUserSheet({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const [employeeId, setEmployeeId] = React.useState<number | null>(null)
+  const [roleCode, setRoleCode] = React.useState<RoleCode>('EMPLOYEE')
+  const [email, setEmail] = React.useState('')
+  const [displayName, setDisplayName] = React.useState('')
+  const [touchedEmail, setTouchedEmail] = React.useState(false)
+
+  const employees = useQuery({
+    queryKey: ['admin', 'invitable-employees'],
+    queryFn: () => api.get<InvitableEmployee[]>('/api/admin/users/invitable-employees'),
+  })
+
+  const chosen = (employees.data ?? []).find((e) => e.employeeId === employeeId) ?? null
+
+  // Selecting an employee prefills identity; the admin can still correct the address.
+  React.useEffect(() => {
+    if (!chosen) return
+    setDisplayName(chosen.displayName)
+    if (!touchedEmail) setEmail(chosen.workEmail ?? '')
+  }, [chosen, touchedEmail])
+
+  const create = useMutation({
+    mutationFn: () => api.post<CreateUserResult>('/api/admin/users', {
+      email, displayName, roleCode, employeeId, sendInvite: true,
+    }),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+      toast.push({
+        tone: r.inviteSent ? 'success' : 'error',
+        title: r.inviteSent ? 'User created and invited' : 'User created, invite not sent',
+        detail: r.inviteMessage,
+      })
+      onClose()
+    },
+    onError: (e) => toast.push({
+      tone: 'error', title: 'Could not create user',
+      detail: e instanceof ApiError ? e.detail : 'Unexpected error.',
+    }),
+  })
+
+  const valid = employeeId !== null && email.includes('@') && displayName.trim().length > 0
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      title="New user"
+      description="Pick the employee first. They set their own password from an emailed link, so no password is entered here."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={create.isPending} disabled={!valid}
+            icon={<Mail className="h-4 w-4" />} onClick={() => create.mutate()}>
+            Create and send invite
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Employee" required
+          hint={employees.data && employees.data.length === 0
+            ? 'Every active employee already has a login. Onboard the employee first under Employees.'
+            : 'Only onboarded employees without a login are listed.'}>
+          <Select
+            value={employeeId}
+            onChange={setEmployeeId}
+            loading={employees.isLoading}
+            placeholder="Select an employee"
+            options={(employees.data ?? []).map((e) => ({
+              value: e.employeeId,
+              label: e.displayName,
+              description: [e.employeeNo, e.jobTitle, e.departmentName].filter(Boolean).join(' · '),
+            }))}
+          />
+        </Field>
+
+        {chosen ? (
+          <>
+            <Field label="Work email" required htmlFor="nuemail" hint="The invite is sent here.">
+              <TextInput id="nuemail" type="email" value={email}
+                onChange={(e) => { setTouchedEmail(true); setEmail(e.target.value) }}
+                placeholder="name@company.com" />
+            </Field>
+            <Field label="Display name" required htmlFor="nuname">
+              <TextInput id="nuname" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+            </Field>
+            <Field label="Role" required hint="Determines which modules they see after signing in.">
+              <Select value={roleCode} onChange={(v) => setRoleCode(v as RoleCode)} options={ROLES} />
+            </Field>
+            <div className="flex items-start gap-2.5 rounded-card border border-separator bg-surface2/50 p-3 text-sm2">
+              <UserPlus className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+              <p className="text-label2">
+                No password is set here. {displayName || 'The employee'} receives a single-use link that
+                expires in 48 hours.
+              </p>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </Sheet>
   )
 }
 

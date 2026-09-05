@@ -36,4 +36,8 @@ public class SalaryStructureController {
 
     @GetMapping("/formula-help")
     public FormulaHelp formulaHelp() { return service.formulaHelp(); }
+
+    /** Flat, cross-structure rule list backing the Payroll → Rules screen. */
+    @GetMapping("/rules/all")
+    public List<SalaryRuleRow> allRules() { return service.allRules(); }
 }

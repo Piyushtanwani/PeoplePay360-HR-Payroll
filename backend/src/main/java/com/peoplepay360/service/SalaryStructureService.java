@@ -44,6 +44,20 @@ public class SalaryStructureService {
         return structures.findAll().stream().map(this::toDto).toList();
     }
 
+    /** Every rule across every structure, in calculation order, for the Salary Rules screen. */
+    @PreAuthorize("hasAuthority('salary_rule.read')")
+    @Transactional(readOnly = true)
+    public List<SalaryRuleRow> allRules() {
+        return structures.findAll().stream()
+                .flatMap(s -> s.getRules().stream()
+                        .map(r -> new SalaryRuleRow(r.getId(), s.getId(), s.getName(), r.getName(), r.getCode(),
+                                r.getCategory(), r.getSequence(), r.getComputeType(), r.getFixedAmount(),
+                                r.getPercentage(), r.getBaseRuleCode(), r.getFormula(), r.isActive())))
+                .sorted(java.util.Comparator.comparing(SalaryRuleRow::structureName)
+                        .thenComparingInt(SalaryRuleRow::sequence))
+                .toList();
+    }
+
     @PreAuthorize("hasAuthority('salary_structure.read')")
     @Transactional(readOnly = true)
     public SalaryStructureDto get(Long id) {

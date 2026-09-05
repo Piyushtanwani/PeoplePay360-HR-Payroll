@@ -116,6 +116,7 @@ Thumbs.db
 .idea/
 .vscode/
 !.vscode/extensions.json
+.claude/
 *.iml
 *.ipr
 *.iws

@@ -7,7 +7,8 @@ import java.util.List;
 
 public class ScheduleDtos {
     public record LineDto(int dayOfWeek, LocalTime startTime, LocalTime endTime, int breakMinutes) {}
-    public record ScheduleDto(Long id, String name, String type, BigDecimal weeklyHours, List<LineDto> lines) {}
+    public record ScheduleDto(Long id, String name, String type, BigDecimal weeklyHours, boolean active,
+                              String companyName, List<LineDto> lines) {}
     public record ScheduleName(Long id, String name, BigDecimal weeklyHours) {}
-    public record SaveSchedule(@NotBlank String name, String type, List<LineDto> lines) {}
+    public record SaveSchedule(@NotBlank String name, String type, Boolean active, List<LineDto> lines) {}
 }

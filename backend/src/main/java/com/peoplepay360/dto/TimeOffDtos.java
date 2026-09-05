@@ -10,7 +10,8 @@ public class TimeOffDtos {
                           boolean requiresAllocation, String color, boolean active) {}
     public record SaveType(String name, String code, Boolean isPaid, Boolean requiresAllocation, String color, Boolean active) {}
     public record AllocationDto(Long id, Long employeeId, String employeeName, Long typeId, String typeName,
-                                BigDecimal days, LocalDate validFrom, LocalDate validTo, String state,
+                                BigDecimal days, BigDecimal taken, BigDecimal remaining,
+                                LocalDate validFrom, LocalDate validTo, String state,
                                 Long approvedBy, OffsetDateTime approvedAt, String note) {}
     public record CreateAllocation(@NotNull Long employeeId, @NotNull Long typeId, @NotNull BigDecimal days,
                                    LocalDate validFrom, LocalDate validTo, String note) {}

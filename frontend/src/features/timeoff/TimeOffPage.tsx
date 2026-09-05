@@ -293,6 +293,11 @@ function AllocationsTab() {
             { key: 'employee', header: 'Employee', render: (r) => r.employeeName, sortValue: (r) => r.employeeName },
             { key: 'type', header: 'Type', render: (r) => r.typeName },
             { key: 'days', header: 'Allocated', align: 'right', render: (r) => `${r.days} days` },
+            { key: 'taken', header: 'Taken', align: 'right', render: (r) => <span className="tnum">{r.taken ?? 0}</span> },
+            {
+              key: 'remaining', header: 'Remaining', align: 'right',
+              render: (r) => <span className={`tnum font-medium ${(r.remaining ?? 0) <= 0 ? 'text-warn' : ''}`}>{r.remaining ?? 0}</span>,
+            },
             { key: 'valid', header: 'Validity', render: (r) => `${fmtDate(r.validFrom)} → ${r.validTo ? fmtDate(r.validTo) : '—'}` },
             { key: 'state', header: 'Status', render: (r) => <StatusBadge status={r.state} /> },
             {
