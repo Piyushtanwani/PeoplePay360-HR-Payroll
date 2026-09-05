@@ -170,8 +170,15 @@ public class ChatGatewayService {
     public Map<String, Object> capabilities() {
         AppUser user = users.findById(currentUser.userId()).orElseThrow(() -> ApiException.notFound("user"));
         List<String> perms = effective.findCodesByUserId(user.getId());
-        String token = jwtService.mintDelegatedToken(user, null, perms);
-        return mcp.tools(token);
+        try {
+            String token = jwtService.mintDelegatedToken(user, null, perms);
+            return mcp.tools(token);
+        } catch (Exception e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("tools", List.of());
+            result.put("mcpAvailable", false);
+            return result;
+        }
     }
 
     // ---- helpers ----

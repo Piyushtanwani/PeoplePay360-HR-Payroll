@@ -1,7 +1,0 @@
-spring:
-  config:
-    activate:
-      on-profile: prod
-app:
-  seed:
-    enabled: false

@@ -86,9 +86,15 @@ public class SalaryStructureService {
         applyRule(r, in, s);
         validateRule(r, s);
         s.getRules().add(r);
-        structures.save(s);
-        audit.record(Channel.UI, "ADD_RULE", "salary_structure", structureId.toString(), "ALLOW", r.getCode(), null, null);
-        return toRuleDto(r);
+        structures.saveAndFlush(s);
+        // Re-fetch to obtain the DB-generated ID (cascade via @JoinColumn does not back-populate the transient entity)
+        SalaryRule saved = structures.findById(structureId)
+                .flatMap(st -> st.getRules().stream()
+                        .filter(x -> x.getCode().equals(r.getCode()) && x.getSequence() == r.getSequence())
+                        .reduce((a, b) -> b))
+                .orElse(r);
+        audit.record(Channel.UI, "ADD_RULE", "salary_structure", structureId.toString(), "ALLOW", saved.getCode(), null, null);
+        return toRuleDto(saved);
     }
 
     @PreAuthorize("hasAuthority('salary_rule.update')")

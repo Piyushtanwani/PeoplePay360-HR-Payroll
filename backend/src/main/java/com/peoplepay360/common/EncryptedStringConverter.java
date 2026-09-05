@@ -17,7 +17,9 @@ import java.util.Base64;
 /** AES-256-GCM converter with a random 12-byte IV per value. Used for bank account numbers and AI API keys. */
 @Component
 @Converter
+@SuppressWarnings("unused")
 public class EncryptedStringConverter implements AttributeConverter<String, String> {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(EncryptedStringConverter.class);
     private static final int IV_LEN = 12;
     private static final int TAG_BITS = 128;
     private static byte[] KEY;
@@ -77,7 +79,8 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
             byte[] pt = cipher.doFinal(all, IV_LEN, all.length - IV_LEN);
             return new String(pt, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            throw new IllegalStateException("Decryption failed", e);
+            log.warn("Decryption failed for stored value — returning null (key mismatch or corrupt data)", e);
+            return null;
         }
     }
 }
