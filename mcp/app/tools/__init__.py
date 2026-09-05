@@ -1,0 +1,32 @@
+# Import all tools so the decorators register them with the central registry
+from app.tools import (
+    whoami,
+    employee_search,
+    employee_summary,
+    timeoff_get_balance,
+    timeoff_list_pending,
+    attendance_list_exceptions,
+    payrun_list,
+    payrun_list_issues,
+    payslip_list,
+    payslip_explain,
+    dashboard_kpis,
+    contract_list_expiring,
+    candidate_compare,
+)
+
+__all__ = [
+    "whoami",
+    "employee_search",
+    "employee_summary",
+    "timeoff_get_balance",
+    "timeoff_list_pending",
+    "attendance_list_exceptions",
+    "payrun_list",
+    "payrun_list_issues",
+    "payslip_list",
+    "payslip_explain",
+    "dashboard_kpis",
+    "contract_list_expiring",
+    "candidate_compare",
+]
