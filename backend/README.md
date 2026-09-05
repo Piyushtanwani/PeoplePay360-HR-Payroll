@@ -79,8 +79,28 @@ Verified end to end against PostgreSQL 16:
 - The chat gateway (mints a per-message delegated token, calls the MCP service, degrades to 503 when the MCP service is down) and AI profile administration.
 - Recruitment with the five-stage pipeline and deterministic candidate scoring.
 
+## Package structure
+
+Layered packages under `com.peoplepay360`:
+
+- `model` — JPA entities
+- `repository` — Spring Data and custom repositories
+- `dto` — request and response records
+- `service` — business logic (payroll engine, guards-adjacent domain services, gateways)
+- `controller` — REST controllers
+- `security` — JWT, RBAC, filters and guards
+- `config`, `common` — configuration and cross-cutting infrastructure (audit, errors, encryption)
+
+## Tests
+
+```
+mvn test
+```
+
+Runs 36 tests: unit tests for the rule engine, formula engine, schedule maths, attendance classification, contract resolver, grant policy, leave balances and candidate scoring; and a full end-to-end integration suite against PostgreSQL (`peoplepay_test`, created and cleaned automatically) covering login, the RBAC matrix, IDOR protection, the payrun wizard and pre-validation gate, override/validate/pay, leave approval, dashboard redaction and the chat fallback. The integration suite needs a reachable PostgreSQL; configure it in `src/test/resources/application-it.yml`.
+
 ## Known gaps in this build
 
-- Automated test suites (unit, integration, RBAC matrix) are not yet included; verification so far is manual against a live database.
 - The demo seeder does not yet generate daily attendance rows, so the dashboard attendance-health figure reads zero until attendance exists.
 - Historical payruns are produced by `SeedPayrunRunner` using the real rule engine directly rather than through the `PayrunService` HTTP flow, to avoid needing a security context during seeding.
+- The integration tests use a local PostgreSQL rather than Testcontainers, because Docker is not assumed to be present in this environment.

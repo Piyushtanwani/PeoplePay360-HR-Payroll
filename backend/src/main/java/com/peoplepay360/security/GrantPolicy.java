@@ -2,10 +2,10 @@ package com.peoplepay360.security;
 
 import com.peoplepay360.common.ApiException;
 import com.peoplepay360.common.ErrorCode;
-import com.peoplepay360.identity.AppUser;
-import com.peoplepay360.identity.EffectivePermissionRepository;
-import com.peoplepay360.identity.Permission;
-import com.peoplepay360.identity.PermissionRepository;
+import com.peoplepay360.model.AppUser;
+import com.peoplepay360.repository.EffectivePermissionRepository;
+import com.peoplepay360.model.Permission;
+import com.peoplepay360.repository.PermissionRepository;
 import org.springframework.stereotype.Component;
 import java.util.Set;
 

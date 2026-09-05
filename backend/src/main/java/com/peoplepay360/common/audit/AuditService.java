@@ -10,38 +10,44 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import com.peoplepay360.model.AuditEvent;
 
 @Service
 public class AuditService {
-    private final AuditEventRepository repo;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuditService.class);
+    private final AuditWriter writer;
     private final ObjectMapper mapper;
 
-    public AuditService(AuditEventRepository repo, ObjectMapper mapper) {
-        this.repo = repo;
+    public AuditService(AuditWriter writer, ObjectMapper mapper) {
+        this.writer = writer;
         this.mapper = mapper;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(Channel channel, String action, String resourceType, String resourceId,
                        String outcome, String reason, String beforeJson, String afterJson) {
-        AuditEvent e = new AuditEvent();
-        Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        if (a != null && a.getPrincipal() instanceof Jwt jwt) {
-            e.setActorUserId(Long.valueOf(jwt.getSubject()));
-            e.setActorName(jwt.getClaimAsString("name"));
-            List<String> roles = jwt.getClaimAsStringList("roles");
-            if (roles != null) e.setActorRoles(roles.toArray(new String[0]));
+        try {
+            AuditEvent e = new AuditEvent();
+            Authentication a = SecurityContextHolder.getContext().getAuthentication();
+            if (a != null && a.getPrincipal() instanceof Jwt jwt) {
+                e.setActorUserId(Long.valueOf(jwt.getSubject()));
+                e.setActorName(jwt.getClaimAsString("name"));
+                List<String> roles = jwt.getClaimAsStringList("roles");
+                if (roles != null) e.setActorRoles(roles.toArray(new String[0]));
+            }
+            e.setChannel(channel.name());
+            e.setAction(action);
+            e.setResourceType(resourceType);
+            e.setResourceId(resourceId);
+            e.setOutcome(outcome);
+            e.setReason(reason);
+            e.setBeforeJson(beforeJson);
+            e.setAfterJson(afterJson);
+            e.setRequestId(RequestContext.getRequestId());
+            writer.write(e);
+        } catch (Exception ex) {
+            // Auditing must never break the request it describes.
+            log.warn("Failed to write audit event {} {}: {}", action, resourceType, ex.getMessage());
         }
-        e.setChannel(channel.name());
-        e.setAction(action);
-        e.setResourceType(resourceType);
-        e.setResourceId(resourceId);
-        e.setOutcome(outcome);
-        e.setReason(reason);
-        e.setBeforeJson(beforeJson);
-        e.setAfterJson(afterJson);
-        e.setRequestId(RequestContext.getRequestId());
-        repo.save(e);
     }
 
     public void allow(Channel channel, String action, String resourceType, String resourceId) {
