@@ -1,0 +1,106 @@
+package com.peoplepay360.payroll;
+
+import com.peoplepay360.contract.Contract;
+import com.peoplepay360.contract.ContractResolver;
+import com.peoplepay360.employee.Employee;
+import com.peoplepay360.employee.EmployeeBankAccountRepository;
+import com.peoplepay360.employee.EmployeeRepository;
+import com.peoplepay360.timeoff.TimeOffRequestRepository;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/** Produces the pre-validation issues from Part B12 for a payrun's selected employees. */
+@Component
+public class PayrunChecker {
+    private final EmployeeRepository employees;
+    private final EmployeeBankAccountRepository banks;
+    private final PayslipRepository payslips;
+    private final ContractResolver contractResolver;
+    private final TimeOffRequestRepository requests;
+
+    public PayrunChecker(EmployeeRepository employees, EmployeeBankAccountRepository banks,
+                         PayslipRepository payslips, ContractResolver contractResolver,
+                         TimeOffRequestRepository requests) {
+        this.employees = employees;
+        this.banks = banks;
+        this.payslips = payslips;
+        this.contractResolver = contractResolver;
+        this.requests = requests;
+    }
+
+    public List<PayrunIssue> check(Payrun payrun, List<Long> employeeIds) {
+        List<PayrunIssue> issues = new ArrayList<>();
+        for (Long empId : employeeIds) {
+            Employee e = employees.findById(empId).orElse(null);
+            if (e == null) continue;
+
+            if (banks.findById(empId).isEmpty()) {
+                issues.add(issue(payrun, empId, "MISSING_BANK_DETAILS", "BLOCKER", true,
+                        e.getDisplayName() + " has no bank account.", "/employees/" + empId + "?tab=bank"));
+            }
+            if (e.getWorkEmail() == null || e.getWorkEmail().isBlank()) {
+                issues.add(issue(payrun, empId, "MISSING_EMAIL", "BLOCKER", true,
+                        e.getDisplayName() + " has no work email.", "/employees/" + empId));
+            }
+            if (e.getDepartmentId() == null || e.getJobTitle() == null || e.getHireDate() == null) {
+                issues.add(issue(payrun, empId, "INCOMPLETE_EMPLOYEE_DATA", "WARNING", true,
+                        e.getDisplayName() + " is missing department, job title or hire date.", "/employees/" + empId));
+            }
+
+            ContractResolver.Resolution res = contractResolver.forPeriod(empId, payrun.getPeriodStart(), payrun.getPeriodEnd());
+            if (res.contract() == null) {
+                issues.add(issue(payrun, empId, "NO_VALID_CONTRACT", "BLOCKER", false,
+                        e.getDisplayName() + " has no contract valid in the period.", "/contracts?employeeId=" + empId));
+            } else if ("MULTIPLE_CONTRACTS_IN_PERIOD".equals(res.warning())) {
+                issues.add(issue(payrun, empId, "MULTIPLE_CONTRACTS_IN_PERIOD", "WARNING", true,
+                        e.getDisplayName() + " has more than one contract intersecting the period.",
+                        "/contracts?employeeId=" + empId));
+            } else if ("CONTRACT_ENDS_IN_PERIOD".equals(res.warning())) {
+                Contract c = res.contract();
+                issues.add(issue(payrun, empId, "CONTRACT_ENDS_IN_PERIOD", "WARNING", true,
+                        e.getDisplayName() + "'s contract ends within the period.", "/contracts/" + c.getId()));
+            }
+            if (res.contract() != null) {
+                Contract c = res.contract();
+                if (c.getStartDate().isAfter(payrun.getPeriodStart()) && !c.getStartDate().isAfter(payrun.getPeriodEnd())) {
+                    issues.add(issue(payrun, empId, "CONTRACT_STARTS_IN_PERIOD", "WARNING", true,
+                            e.getDisplayName() + "'s contract starts within the period.", "/contracts/" + c.getId()));
+                }
+            }
+
+            // Duplicate payslip: a payslip on another non-cancelled payrun overlapping this period.
+            boolean duplicate = payslips.findOverlapping(empId, payrun.getPeriodStart(), payrun.getPeriodEnd())
+                    .stream().anyMatch(p -> !p.getPayrunId().equals(payrun.getId()));
+            if (duplicate) {
+                issues.add(issue(payrun, empId, "DUPLICATE_PAYSLIP", "BLOCKER", false,
+                        e.getDisplayName() + " already has a payslip for an overlapping period.", null));
+            }
+
+            long pending = requests.findByEmployeeIdAndState(empId, "PENDING").stream()
+                    .filter(r -> !r.getStartDate().isAfter(payrun.getPeriodEnd())
+                            && !r.getEndDate().isBefore(payrun.getPeriodStart())).count();
+            if (pending > 0) {
+                issues.add(issue(payrun, empId, "PENDING_LEAVE_IN_PERIOD", "WARNING", true,
+                        e.getDisplayName() + " has pending leave in the period.",
+                        "/timeoff/requests?employeeId=" + empId + "&state=PENDING"));
+            }
+        }
+        return issues;
+    }
+
+    private PayrunIssue issue(Payrun p, Long empId, String code, String severity, boolean overridable,
+                              String message, String fixLink) {
+        PayrunIssue i = new PayrunIssue();
+        i.setPayrunId(p.getId());
+        i.setEmployeeId(empId);
+        i.setCheckCode(code);
+        i.setSeverity(severity);
+        i.setOverridable(overridable);
+        i.setMessage(message);
+        i.setStatus("OPEN");
+        i.setFixLink(fixLink);
+        return i;
+    }
+}

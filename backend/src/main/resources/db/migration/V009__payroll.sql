@@ -134,8 +134,9 @@ DECLARE
     st TEXT;
     pid BIGINT;
 BEGIN
-    pid := COALESCE(NEW.payrun_id, OLD.payrun_id);
-    IF pid IS NULL THEN
+    IF TG_TABLE_NAME = 'payslip' THEN
+        pid := COALESCE(NEW.payrun_id, OLD.payrun_id);
+    ELSE
         SELECT p.payrun_id INTO pid FROM payslip p WHERE p.id = COALESCE(NEW.payslip_id, OLD.payslip_id);
     END IF;
     SELECT state INTO st FROM payrun WHERE id = pid;
