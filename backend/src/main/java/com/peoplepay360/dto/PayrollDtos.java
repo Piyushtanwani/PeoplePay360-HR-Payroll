@@ -49,4 +49,9 @@ public class PayrollDtos {
                              BigDecimal net, List<PayslipLineDto> lines, List<PayslipInputDto> inputs, PayStub delivery) {}
     public record PayRequest(LocalDate paymentDate, String note) {}
     public record SendResult(int queued, int skipped) {}
+    public record DeliveryRow(Long payslipId, String employeeName, String status,
+                              OffsetDateTime sentAt, String recipient) {}
+    public record DeliveryReport(List<DeliveryRow> rows, java.util.Map<String, Long> summary) {}
+    public record FormulaVariable(String name, String description) {}
+    public record FormulaHelp(List<FormulaVariable> variables, List<String> functions, String example) {}
 }

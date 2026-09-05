@@ -61,6 +61,25 @@ public class PayslipService {
                 .map(this::toDto).toList();
     }
 
+    @PreAuthorize("hasAuthority('payslip.read.all')")
+    @Transactional(readOnly = true)
+    public DeliveryReport deliveryReport(Long payrunId) {
+        List<DeliveryRow> rows = payslips.findAll().stream()
+                .filter(p -> p.getPayrunId().equals(payrunId))
+                .map(this::toDto)
+                .map(p -> new DeliveryRow(p.id(), p.employeeName(),
+                        p.delivery() == null ? "SKIPPED" : p.delivery().status(),
+                        p.delivery() == null ? null : p.delivery().sentAt(),
+                        p.delivery() == null ? null : p.delivery().recipient()))
+                .toList();
+        java.util.Map<String, Long> summary = new java.util.LinkedHashMap<>();
+        for (String key : List.of("sent", "queued", "failed", "skipped")) summary.put(key, 0L);
+        for (DeliveryRow row : rows) {
+            summary.merge(row.status() == null ? "skipped" : row.status().toLowerCase(), 1L, Long::sum);
+        }
+        return new DeliveryReport(rows, summary);
+    }
+
     @PreAuthorize("hasAuthority('payslip.read.own')")
     @Transactional(readOnly = true)
     public PayslipDto get(Long id) {

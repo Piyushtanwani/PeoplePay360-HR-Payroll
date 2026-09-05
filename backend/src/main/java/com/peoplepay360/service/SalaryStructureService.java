@@ -119,10 +119,23 @@ public class SalaryStructureService {
 
     @PreAuthorize("hasAuthority('salary_structure.dry_run')")
     @Transactional(readOnly = true)
-    public String formulaHelp() {
-        return "Variables: WAGE, WORKED_DAYS, SCHEDULED_DAYS, UNPAID_DAYS, OVERTIME_HOURS, HOURLY_RATE, "
-                + "R_<RULECODE>, C_BASIC, C_ALLOWANCE, C_DEDUCTION, C_GROSS, C_NET, I_<INPUTCODE>. "
-                + "Functions: min(a,b), max(a,b), abs, round, floor, ceil.";
+    public FormulaHelp formulaHelp() {
+        List<FormulaVariable> variables = List.of(
+                new FormulaVariable("WAGE", "Contract wage for the period."),
+                new FormulaVariable("WORKED_DAYS", "Days actually worked in the period."),
+                new FormulaVariable("SCHEDULED_DAYS", "Days the working schedule expects."),
+                new FormulaVariable("UNPAID_DAYS", "Unpaid leave days deducted from the period."),
+                new FormulaVariable("OVERTIME_HOURS", "Overtime hours recorded from attendance."),
+                new FormulaVariable("HOURLY_RATE", "Wage divided by scheduled hours."),
+                new FormulaVariable("R_<RULECODE>", "Result of an earlier rule, by its code."),
+                new FormulaVariable("C_BASIC", "Running total of the BASIC category."),
+                new FormulaVariable("C_ALLOWANCE", "Running total of the ALLOWANCE category."),
+                new FormulaVariable("C_DEDUCTION", "Running total of the DEDUCTION category."),
+                new FormulaVariable("C_GROSS", "Running total of the GROSS category."),
+                new FormulaVariable("C_NET", "Running total of the NET category."),
+                new FormulaVariable("I_<INPUTCODE>", "Payrun input value, by its code."));
+        List<String> functions = List.of("min(a,b)", "max(a,b)", "abs(a)", "round(a)", "floor(a)", "ceil(a)");
+        return new FormulaHelp(variables, functions, "C_BASIC * WORKED_DAYS / SCHEDULED_DAYS");
     }
 
     private void applyRule(SalaryRule r, SaveRule in, SalaryStructure s) {

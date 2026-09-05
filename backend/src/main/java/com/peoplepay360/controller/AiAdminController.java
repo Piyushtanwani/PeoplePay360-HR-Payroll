@@ -26,6 +26,8 @@ public class AiAdminController {
     public List<ProviderPreset> providers() { return service.providers(); }
     @PostMapping("/models")
     public Map<String, Object> models(@RequestBody ModelsRequest in) { return service.models(in); }
+    @PostMapping("/quick-setup")
+    public QuickSetupResult quickSetup(@RequestBody QuickSetup in) { return service.quickSetup(in); }
     @PostMapping("/test")
     public Map<String, Object> test(@RequestBody TestRequest in) { return service.test(in); }
     @GetMapping("/active")

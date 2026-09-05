@@ -191,7 +191,12 @@ public class EmployeeService {
                 employees.findById(e.getManagerId()).map(Employee::getDisplayName).orElse(null);
         return new EmployeeSummary(e.getId(), e.getEmployeeNo(), e.getDisplayName(), e.getJobTitle(),
                 e.getDepartmentId(), deptName, e.getEmployeeType(), e.getManagerId(), managerName,
-                e.isActive(), AvatarColor.forKey(e.getEmployeeNo()));
+                e.isActive(), AvatarColor.forKey(e.getEmployeeNo()),
+                new Counts(
+                        contracts.countByEmployeeId(e.getId()),
+                        attendance.countByEmployeeId(e.getId()),
+                        requests.countByEmployeeId(e.getId()),
+                        allocations.countByEmployeeId(e.getId())));
     }
 
     private EmployeeDetail toDetail(Employee e) {
@@ -204,15 +209,10 @@ public class EmployeeService {
         BankView bank = banks.findById(e.getId())
                 .map(b -> new BankView(b.getBankName(), b.getAccountLast4(), true))
                 .orElse(null);
-        Counts counts = new Counts(
-                contracts.countByEmployeeId(e.getId()),
-                attendance.countByEmployeeId(e.getId()),
-                requests.countByEmployeeId(e.getId()),
-                allocations.countByEmployeeId(e.getId()));
         return new EmployeeDetail(s.id(), s.employeeNo(), s.displayName(), s.jobTitle(), s.departmentId(),
                 s.departmentName(), s.employeeType(), s.managerId(), s.managerName(), s.active(), s.avatarColor(),
                 e.getWorkEmail(), e.getHireDate(), e.getUserId(), e.getWorkingScheduleId(), scheduleName,
-                activeContractId, bank, counts);
+                activeContractId, bank, s.counts());
     }
 
     private String nextEmployeeNo() {

@@ -18,13 +18,14 @@ import com.peoplepay360.repository.AiProfileRepository;
 @Service
 public class AiProfileService {
     private final AiProfileRepository repo;
-    private final McpClient mcp;
+    private final AiProviderClient providerClient;
     private final AppProperties props;
     private final CurrentUser currentUser;
 
-    public AiProfileService(AiProfileRepository repo, McpClient mcp, AppProperties props, CurrentUser currentUser) {
+    public AiProfileService(AiProfileRepository repo, AiProviderClient providerClient, AppProperties props,
+                            CurrentUser currentUser) {
         this.repo = repo;
-        this.mcp = mcp;
+        this.providerClient = providerClient;
         this.props = props;
         this.currentUser = currentUser;
     }
@@ -67,30 +68,86 @@ public class AiProfileService {
     @PreAuthorize("hasAuthority('ai.settings')")
     public List<ProviderPreset> providers() {
         return List.of(
-            new ProviderPreset("OPENROUTER", "OpenRouter", "https://openrouter.ai/api/v1", true, "https://openrouter.ai/docs"),
-            new ProviderPreset("NVIDIA", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", true, "https://docs.nvidia.com"),
-            new ProviderPreset("OLLAMA", "Ollama (local)", "http://host.docker.internal:11434/v1", false, "https://ollama.com")
+            new ProviderPreset("OPENROUTER", "OpenRouter", "https://openrouter.ai/api/v1", true, "https://openrouter.ai/keys"),
+            new ProviderPreset("NVIDIA", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", true, "https://build.nvidia.com"),
+            new ProviderPreset("OLLAMA", "Ollama (this machine)", "http://localhost:11434/v1", false, "https://ollama.com")
         );
     }
 
     @PreAuthorize("hasAuthority('ai.settings')")
     public Map<String, Object> models(ModelsRequest in) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("provider", in.provider());
-        body.put("baseUrl", in.baseUrl());
-        body.put("apiKey", resolveKey(in.apiKey(), in.profileId()));
-        return mcp.models(body);
+        String baseUrl = in.baseUrl() == null || in.baseUrl().isBlank() ? presetBaseUrl(in.provider()) : in.baseUrl();
+        List<String> models = providerClient.listModels(in.provider(), baseUrl, resolveKey(in.apiKey(), in.profileId()));
+        Map<String, Object> out = new HashMap<>();
+        out.put("models", models);
+        out.put("defaultModel", providerClient.defaultModel(in.provider(), models));
+        return out;
+    }
+
+    /**
+     * Paste a key, get a working assistant: fetches the model list, picks the best default,
+     * saves the profile, makes it the active one and verifies it end to end.
+     */
+    @PreAuthorize("hasAuthority('ai.settings')")
+    @Transactional
+    public QuickSetupResult quickSetup(QuickSetup in) {
+        String provider = in.provider() == null ? "OLLAMA" : in.provider().toUpperCase();
+        String baseUrl = in.baseUrl() == null || in.baseUrl().isBlank() ? presetBaseUrl(provider) : in.baseUrl();
+        String apiKey = in.apiKey() == null ? "" : in.apiKey().trim();
+
+        List<String> models = providerClient.listModels(provider, baseUrl, apiKey);
+        String chosen = in.model() == null || in.model().isBlank() ? null : in.model().trim();
+        if (chosen != null && !models.isEmpty() && !models.contains(chosen)) {
+            throw new ApiException(com.peoplepay360.common.ErrorCode.AI_PROVIDER_ERROR,
+                    "That model is not available from this provider.");
+        }
+        String model = chosen != null ? chosen : providerClient.defaultModel(provider, models);
+        if (model == null) {
+            throw new ApiException(com.peoplepay360.common.ErrorCode.AI_PROVIDER_ERROR,
+                    "The provider returned no models. For Ollama, pull a model first.");
+        }
+
+        AiProfile p = repo.findByProviderIgnoreCase(provider).orElseGet(AiProfile::new);
+        p.setName(label(provider));
+        p.setProvider(provider);
+        p.setBaseUrl(baseUrl);
+        p.setModel(model);
+        if (!apiKey.isBlank()) {
+            p.setApiKey(apiKey);
+            p.setApiKeyLast4(apiKey.length() >= 4 ? apiKey.substring(apiKey.length() - 4) : apiKey);
+        }
+        if (p.getToolMode() == null) p.setToolMode("AUTO");
+        if (p.getTemperature() == null) p.setTemperature(new java.math.BigDecimal("0.2"));
+        if (p.getMaxTokens() == 0) p.setMaxTokens(2048);
+        p.setUpdatedAt(OffsetDateTime.now());
+
+        Map<String, Object> result = providerClient.test(provider, baseUrl, apiKey, model);
+        boolean ok = Boolean.TRUE.equals(result.get("ok"));
+        p.setLastTestOk(ok);
+        p.setLastTestAt(OffsetDateTime.now());
+        p.setLastTestMessage(String.valueOf(result.getOrDefault("message", "")));
+        p = repo.save(p);
+
+        final Long activeId = p.getId();
+        repo.findAll().forEach(other -> {
+            boolean shouldBeDefault = other.getId().equals(activeId);
+            if (other.isDefault() != shouldBeDefault) { other.setDefault(shouldBeDefault); repo.save(other); }
+        });
+        p.setDefault(true);
+
+        return new QuickSetupResult(toDto(p), models, ok, String.valueOf(result.getOrDefault("message", "")));
     }
 
     @PreAuthorize("hasAuthority('ai.settings')")
     @Transactional
     public Map<String, Object> test(TestRequest in) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("provider", in.provider());
-        body.put("baseUrl", in.baseUrl());
-        body.put("apiKey", resolveKey(in.apiKey(), in.profileId()));
-        body.put("model", in.model());
-        Map<String, Object> result = mcp.test(body);
+        String baseUrl = in.baseUrl() == null || in.baseUrl().isBlank() ? presetBaseUrl(in.provider()) : in.baseUrl();
+        String model = in.model();
+        if ((model == null || model.isBlank()) && in.profileId() != null) {
+            model = repo.findById(in.profileId()).map(AiProfile::getModel).orElse(null);
+        }
+        Map<String, Object> result = providerClient.test(in.provider(), baseUrl,
+                resolveKey(in.apiKey(), in.profileId()), model);
         if (in.profileId() != null) {
             repo.findById(in.profileId()).ifPresent(p -> {
                 p.setLastTestOk(Boolean.TRUE.equals(result.get("ok")));
@@ -100,6 +157,25 @@ public class AiProfileService {
             });
         }
         return result;
+    }
+
+    private String presetBaseUrl(String provider) {
+        String key = provider == null ? "" : provider.toUpperCase();
+        return switch (key) {
+            case "OPENROUTER" -> "https://openrouter.ai/api/v1";
+            case "NVIDIA" -> "https://integrate.api.nvidia.com/v1";
+            case "OLLAMA" -> "http://localhost:11434/v1";
+            default -> props.getAi().getDefaultBaseUrl();
+        };
+    }
+
+    private String label(String provider) {
+        return switch (provider) {
+            case "OPENROUTER" -> "OpenRouter";
+            case "NVIDIA" -> "NVIDIA NIM";
+            case "OLLAMA" -> "Ollama (this machine)";
+            default -> provider;
+        };
     }
 
     @PreAuthorize("hasAuthority('chat.access')")
