@@ -1,189 +1,244 @@
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
-import * as Tabs from '@radix-ui/react-tabs'
 import { Download } from 'lucide-react'
-import { api, buildUrl } from '@/api/client'
+import { usePayslip, usePayslipVariance, useSavePayslipNote } from '@/api/hooks'
 import { useAuth } from '@/auth/AuthProvider'
-import { Button, Chip, Sheet, StatusBadge, useToast } from '@/components/ui'
-import { fmtDate, money } from '@/lib/format'
-import type { Payslip } from '@/api/types'
+import {
+  Button, Callout, Chip, DataTable, DetailList, Field, HelpItems, HelpPopover, Sheet, Spinner,
+  StatusBadge, TabPanel, Tabs, TextArea, type Column,
+} from '@/components/ui'
+import { useDownload } from '@/lib/download'
+import { fmtDateTime, fmtRange, moneyExact, num } from '@/lib/format'
+import type { PayslipLine } from '@/api/types'
 
-const TAB_CLASS = 'rounded-control px-3 py-1.5 text-sm2 font-medium text-label2 data-[state=active]:bg-surface data-[state=active]:text-label data-[state=active]:shadow-sm'
+/** One payslip: how the figure was reached, how it moved, and the record behind it. */
+export function PayslipSheet({ payslipId, onOpenChange }: {
+  payslipId: number | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const { can } = useAuth()
+  const payslip = usePayslip(payslipId)
+  const variance = usePayslipVariance(payslipId, can('payslip.read.all'))
+  const { download, pending: downloading } = useDownload()
 
-interface Variance {
-  previousPayslipId: number | null
-  netDelta: number
-  netDeltaPct: number
-  lineDeltas: { ruleCode: string; ruleName: string; previous: number; current: number; delta: number }[]
-}
+  const [note, setNote] = React.useState('')
+  const saveNote = useSavePayslipNote()
+  React.useEffect(() => { setNote(payslip.data?.note ?? '') }, [payslip.data?.id, payslip.data?.note])
 
-export function PayslipSheet({ payslipId, onClose }: { payslipId: number; onClose: () => void }) {
-  const toast = useToast()
-  const { can, token } = useAuth()
-  const [downloading, setDownloading] = React.useState(false)
+  const lineColumns: Column<PayslipLine & { id: string }>[] = [
+    { key: 'sequence', header: 'Seq', align: 'right', width: '56px', render: (r) => r.sequence },
+    {
+      key: 'rule',
+      header: 'Rule',
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.ruleName}</p>
+          <p className="tnum truncate text-xs2 text-label2">{r.ruleCode}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      render: (r) => (
+        <span className={r.amount < 0 ? 'text-bad' : undefined}>{moneyExact(r.amount)}</span>
+      ),
+    },
+  ]
 
-  const payslip = useQuery({ queryKey: ['payslip', payslipId], queryFn: () => api.get<Payslip>(`/api/payslips/${payslipId}`) })
-  const variance = useQuery({
-    queryKey: ['payslip', payslipId, 'variance'],
-    enabled: can('payslip.read.all'),
-    queryFn: () => api.get<Variance>(`/api/payslips/${payslipId}/variance`),
-  })
-
-  const download = async () => {
-    setDownloading(true)
-    try {
-      const response = await fetch(buildUrl(`/api/payslips/${payslipId}/pdf`), { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `Payslip_${payslip.data?.employeeNo}_${payslip.data?.periodStart.slice(0, 7)}.pdf`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
-      toast.push({ tone: 'success', title: 'Payslip downloaded' })
-    } catch {
-      toast.push({ tone: 'error', title: 'Download failed', detail: 'The payslip PDF could not be generated.' })
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  const slip = payslip.data
-  const grouped = ['BASIC', 'ALLOWANCE', 'GROSS', 'DEDUCTION', 'NET'] as const
+  const lines = (payslip.data?.lines ?? []).map((l) => ({ ...l, id: `${l.sequence}-${l.ruleCode}` }))
 
   return (
     <Sheet
-      open
-      onOpenChange={(next) => !next && onClose()}
+      open={payslipId !== null}
+      onOpenChange={onOpenChange}
       width="lg"
-      title={slip ? `Payslip · ${slip.employeeName}` : 'Payslip'}
-      description={slip ? `${slip.employeeNo} · ${fmtDate(slip.periodStart)} — ${fmtDate(slip.periodEnd)}` : undefined}
+      title={payslip.data ? `${payslip.data.employeeName} · ${fmtRange(payslip.data.periodStart, payslip.data.periodEnd)}` : 'Payslip'}
+      description="Produced by a payrun and never edited afterwards. To change it, correct the data and recompute."
       footer={
         <>
-          <Button onClick={onClose}>Close</Button>
-          <Button variant="primary" icon={<Download className="h-4 w-4" />} loading={downloading} onClick={download}>Download PDF</Button>
+          {payslip.data ? (
+            <Button
+              icon={<Download className="h-4 w-4" />}
+              loading={downloading}
+              onClick={() =>
+                download(
+                  `/api/payslips/${payslip.data!.id}/pdf`,
+                  `Payslip_${payslip.data!.employeeNo}_${payslip.data!.periodStart}.pdf`,
+                )
+              }
+            >
+              Download PDF
+            </Button>
+          ) : null}
+          <Button onClick={() => onOpenChange(false)}>Close</Button>
         </>
       }
     >
-      {!slip ? null : (
-        <Tabs.Root defaultValue="computation">
-          <Tabs.List className="mb-4 inline-flex gap-1 rounded-control bg-surface2 p-0.5">
-            <Tabs.Trigger value="computation" className={TAB_CLASS}>Computation</Tabs.Trigger>
-            {can('payslip.read.all') ? <Tabs.Trigger value="variance" className={TAB_CLASS}>Variance</Tabs.Trigger> : null}
-            <Tabs.Trigger value="details" className={TAB_CLASS}>Details</Tabs.Trigger>
-          </Tabs.List>
+      {payslip.isLoading ? (
+        <p className="flex items-center gap-2 text-sm2 text-label2"><Spinner /> Loading…</p>
+      ) : payslip.isError || !payslip.data ? (
+        <Callout tone="bad" title="Payslip not available">
+          It may have been removed, or it is outside what your role may see.
+        </Callout>
+      ) : (
+        <Tabs
+          items={[
+            { value: 'computation', label: 'How it was calculated' },
+            { value: 'variance', label: 'Change since last time', hidden: !can('payslip.read.all') },
+            { value: 'details', label: 'Record' },
+          ]}
+        >
+          <TabPanel value="computation">
+            <div className="space-y-4">
+              <DetailList
+                items={[
+                  { label: 'Gross', value: moneyExact(payslip.data.gross), tnum: true },
+                  { label: 'Deductions', value: moneyExact(payslip.data.deductions), tnum: true },
+                  { label: 'Net', value: <span className="text-[15px]">{moneyExact(payslip.data.net)}</span>, tnum: true },
+                ]}
+              />
 
-          <Tabs.Content value="computation">
-            <div className="mb-4 grid grid-cols-3 gap-2 text-center">
-              {[['Worked days', slip.workedDays], ['Scheduled days', slip.scheduledDays], ['Unpaid days', slip.unpaidDays]].map(([label, value]) => (
-                <div key={label as string} className="rounded-control bg-surface2 px-3 py-2">
-                  <p className="tnum text-[17px] font-semibold">{value as number}</p>
-                  <p className="text-xs2 text-label2">{label as string}</p>
+              <div>
+                <div className="mb-2 flex items-center gap-1">
+                  <h3 className="text-sm2 font-semibold">Rules, in the order they ran</h3>
+                  <HelpPopover title="Reading the calculation" size="sm">
+                    <HelpItems
+                      items={[
+                        { term: 'Order matters', text: 'Each rule may use the result of any rule above it, and none below.' },
+                        { term: 'Categories', text: 'Basic and allowances add up to gross; deductions come off it.' },
+                        { term: 'Negative lines', text: 'Shown in red. A deduction larger than gross would make net negative.' },
+                      ]}
+                    />
+                  </HelpPopover>
                 </div>
-              ))}
-            </div>
-
-            <div className="overflow-hidden rounded-card border border-separator">
-              <table className="w-full text-body">
-                <thead>
-                  <tr className="border-b border-separator text-left text-xs2 uppercase tracking-wide text-label2">
-                    <th className="px-4 py-2">Rule</th><th className="px-4 py-2">Code</th><th className="px-4 py-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grouped.map((category) => {
-                    const lines = slip.lines.filter((l) => l.category === category)
-                    if (!lines.length) return null
-                    return (
-                      <React.Fragment key={category}>
-                        <tr className="bg-surface2/60">
-                          <td colSpan={3} className="px-4 py-1.5 text-xs2 font-semibold uppercase tracking-wide text-label2">{category.toLowerCase()}</td>
-                        </tr>
-                        {lines.map((line) => (
-                          <tr key={line.ruleCode} className="border-b border-separator/60">
-                            <td className="px-4 py-2">{line.ruleName}</td>
-                            <td className="tnum px-4 py-2 text-label2">{line.ruleCode}</td>
-                            <td className={`tnum px-4 py-2 text-right ${line.amount < 0 ? 'text-bad' : ''}`}>{money(line.amount)}</td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    )
-                  })}
-                  <tr className="bg-surface2">
-                    <td className="px-4 py-2.5 font-semibold" colSpan={2}>Net salary</td>
-                    <td className="tnum px-4 py-2.5 text-right text-[17px] font-semibold">{money(slip.net)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {slip.inputs.length ? (
-              <div className="mt-4">
-                <p className="mb-1.5 text-sm2 font-medium">Payrun inputs</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {slip.inputs.map((input) => <Chip key={input.code} tone="accent">{input.code}: {input.value}</Chip>)}
+                <div className="rounded-card border border-separator">
+                  <DataTable
+                    rows={lines}
+                    columns={lineColumns}
+                    chrome="embedded"
+                    groupBy={(r) => r.category}
+                    summaryRow={{ rule: 'Net pay', amount: moneyExact(payslip.data.net) }}
+                    empty={{ title: 'No lines', description: 'This payslip has no computed lines, which should not happen.' }}
+                  />
                 </div>
               </div>
-            ) : null}
-          </Tabs.Content>
 
-          <Tabs.Content value="variance">
-            {variance.data?.previousPayslipId ? (
-              <>
-                <div className="mb-3 flex items-center gap-2 text-sm2">
-                  <span className="text-label2">Net change versus previous period</span>
-                  <Chip tone={variance.data.netDelta >= 0 ? 'ok' : 'bad'}>
-                    {variance.data.netDelta >= 0 ? '+' : ''}{money(variance.data.netDelta)} ({variance.data.netDeltaPct}%)
-                  </Chip>
+              <div>
+                <div className="mb-2 flex items-center gap-1">
+                  <h3 className="text-sm2 font-semibold">Inputs the rules used</h3>
+                  <HelpPopover title="Where inputs come from" size="sm">
+                    <HelpItems
+                      items={[
+                        { term: 'Computed', text: 'Derived from attendance, leave and the working schedule.' },
+                        { term: 'Manual', text: 'Entered against the payrun, which overrides the computed value.' },
+                      ]}
+                    />
+                  </HelpPopover>
                 </div>
-                <div className="overflow-hidden rounded-card border border-separator">
-                  <table className="w-full text-body">
-                    <thead>
-                      <tr className="border-b border-separator text-left text-xs2 uppercase tracking-wide text-label2">
-                        <th className="px-4 py-2">Rule</th><th className="px-4 py-2 text-right">Previous</th>
-                        <th className="px-4 py-2 text-right">Current</th><th className="px-4 py-2 text-right">Delta</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variance.data.lineDeltas.map((line) => (
-                        <tr key={line.ruleCode} className="border-b border-separator/60">
-                          <td className="px-4 py-2">{line.ruleName}</td>
-                          <td className="tnum px-4 py-2 text-right text-label2">{money(line.previous)}</td>
-                          <td className="tnum px-4 py-2 text-right">{money(line.current)}</td>
-                          <td className={`tnum px-4 py-2 text-right ${line.delta === 0 ? 'text-label2' : line.delta > 0 ? 'text-ok' : 'text-bad'}`}>
-                            {line.delta > 0 ? '+' : ''}{money(line.delta)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+                <DetailList
+                  items={payslip.data.inputs.map((input) => ({
+                    label: input.code.replace(/_/g, ' ').toLowerCase(),
+                    value: (
+                      <span className="flex items-center justify-end gap-2">
+                        <span className="tnum">{num(input.value, 2)}</span>
+                        {input.source === 'MANUAL' ? <Chip tone="warn">manual</Chip> : null}
+                      </span>
+                    ),
+                  }))}
+                />
+              </div>
+            </div>
+          </TabPanel>
+
+          <TabPanel value="variance">
+            {variance.isLoading ? (
+              <p className="flex items-center gap-2 text-sm2 text-label2"><Spinner /> Comparing…</p>
+            ) : !variance.data?.previousPayslipId ? (
+              <Callout tone="neutral" title="Nothing to compare with">
+                This is the first payslip for this person, so there is no previous one to measure against.
+              </Callout>
             ) : (
-              <p className="py-8 text-center text-sm2 text-label2">No earlier payslip exists for this employee.</p>
-            )}
-          </Tabs.Content>
-
-          <Tabs.Content value="details">
-            <dl className="divide-y divide-separator rounded-card border border-separator">
-              {[
-                ['Employee', slip.employeeName], ['Department', slip.departmentName], ['Contract', slip.contractReference],
-                ['Payrun', slip.payrunName], ['Period', `${fmtDate(slip.periodStart)} — ${fmtDate(slip.periodEnd)}`],
-                ['Gross', money(slip.gross)], ['Deductions', money(slip.deductions)], ['Net', money(slip.net)],
-                ['Delivery', slip.delivery.recipient ?? 'No recipient'],
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 px-4 py-2.5 text-sm2">
-                  <dt className="text-label2">{label}</dt><dd className="text-right font-medium">{value}</dd>
+              <div className="space-y-4">
+                <DetailList
+                  items={[
+                    {
+                      label: 'Change in net',
+                      value: (
+                        <span className={variance.data.netDelta < 0 ? 'text-bad' : 'text-ok'}>
+                          {moneyExact(variance.data.netDelta, { sign: true })} ({variance.data.netDeltaPct}%)
+                        </span>
+                      ),
+                      tnum: true,
+                    },
+                  ]}
+                />
+                <div className="rounded-card border border-separator">
+                  <DataTable
+                    rows={variance.data.lineDeltas.map((d) => ({ ...d, id: d.ruleCode }))}
+                    chrome="embedded"
+                    columns={[
+                      { key: 'ruleCode', header: 'Rule', render: (r) => <span className="tnum">{r.ruleCode}</span> },
+                      { key: 'previous', header: 'Previously', align: 'right', render: (r) => moneyExact(r.previous) },
+                      { key: 'current', header: 'This time', align: 'right', render: (r) => moneyExact(r.current) },
+                      {
+                        key: 'delta',
+                        header: 'Change',
+                        align: 'right',
+                        render: (r) => (
+                          <span className={r.delta < 0 ? 'text-bad' : r.delta > 0 ? 'text-ok' : undefined}>
+                            {r.delta === 0 ? '—' : moneyExact(r.delta, { sign: true })}
+                          </span>
+                        ),
+                      },
+                    ]}
+                    empty={{ title: 'No line changes', description: 'Every rule produced the same amount as last time.' }}
+                  />
                 </div>
-              ))}
-              <div className="flex justify-between gap-4 px-4 py-2.5 text-sm2">
-                <dt className="text-label2">Delivery status</dt><dd><StatusBadge status={slip.delivery.status} /></dd>
               </div>
-            </dl>
-          </Tabs.Content>
-        </Tabs.Root>
+            )}
+          </TabPanel>
+
+          <TabPanel value="details">
+            <div className="space-y-4">
+              <DetailList
+                items={[
+                  { label: 'Employee', value: `${payslip.data.employeeName} · ${payslip.data.employeeNo}` },
+                  { label: 'Department', value: payslip.data.departmentName ?? '—' },
+                  { label: 'Contract', value: payslip.data.contractReference ?? '—', tnum: true },
+                  { label: 'Payrun', value: payslip.data.payrunName },
+                  { label: 'Payrun status', value: <StatusBadge status={payslip.data.payrunState} /> },
+                  { label: 'Period', value: fmtRange(payslip.data.periodStart, payslip.data.periodEnd) },
+                  { label: 'Days worked', value: num(payslip.data.workedDays, 2), tnum: true },
+                  { label: 'Days scheduled', value: num(payslip.data.scheduledDays, 2), tnum: true },
+                  { label: 'Unpaid days', value: num(payslip.data.unpaidDays, 2), tnum: true },
+                  { label: 'Payslip sent', value: <StatusBadge status={payslip.data.delivery?.status ?? 'NOT_SENT'} /> },
+                  {
+                    label: 'Sent at',
+                    value: fmtDateTime(payslip.data.delivery?.sentAt),
+                    hidden: !payslip.data.delivery?.sentAt,
+                  },
+                  { label: 'Sent to', value: payslip.data.delivery?.recipient ?? '—', hidden: !payslip.data.delivery?.recipient },
+                ]}
+              />
+              {can('payslip.update.all') ? (
+                <Field label="Internal note" hint="Visible to payroll staff only. It does not appear on the PDF.">
+                  <TextArea value={note} onChange={(e) => setNote(e.target.value)} />
+                  <Button
+                    className="mt-2"
+                    size="sm"
+                    loading={saveNote.isPending}
+                    onClick={() => payslip.data && saveNote.mutate({ id: payslip.data.id, note })}
+                  >
+                    Save note
+                  </Button>
+                </Field>
+              ) : payslip.data.note ? (
+                <DetailList items={[{ label: 'Note', value: payslip.data.note }]} />
+              ) : null}
+            </div>
+          </TabPanel>
+        </Tabs>
       )}
     </Sheet>
   )

@@ -4,13 +4,13 @@ from app.backend import backend_client
 from app.blocks import kpi_block, table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, rows_of, model_summary
 
 
 @registry.register(
     name="contract_list_expiring",
     description="Lists active employment contracts that are expiring within a given time window (e.g. within 30, 60, or 90 days).",
-    required_permission="contract.read",
+    required_permission="contract.read.all",
     parameters={
         "type": "object",
         "properties": {
@@ -37,10 +37,11 @@ async def contract_list_expiring_tool(
         params["employeeId"] = args["employeeId"]
 
     data = await backend_client.get("/api/contracts", params=params, token=token)
-    if not data or not isinstance(data, list):
+    rows_from_backend = rows_of(data)
+    if not rows_from_backend:
         return f"No active contracts are expiring within the next {days_ahead} days (before {cutoff}).", [], "contract", None
 
-    formatted = format_tool_result(data)
+    formatted = format_tool_result(rows_from_backend)
     contracts = formatted["ui_view"]
 
     rows = []
@@ -71,8 +72,13 @@ async def contract_list_expiring_tool(
             rows=rows
         ))
 
+    rows_for_model = model_summary(
+        contracts,
+        ["reference", "employeeName", "jobTitle", "startDate", "endDate", "state"],
+    )
     summary_text = (
-        f"Found {len(contracts)} active contract(s) expiring within {days_ahead} days (before {cutoff})."
-        if contracts else f"No active contracts are scheduled to expire before {cutoff}."
+        f"{len(contracts)} contract(s) end within {days_ahead} days (before {cutoff}).\n"
+        f"Rows: {rows_for_model}"
+        if contracts else f"No contract ends before {cutoff}."
     )
     return summary_text, blocks, "contract", None

@@ -1,6 +1,11 @@
 package com.peoplepay360.controller;
 
+import com.peoplepay360.common.PageResponse;
 import com.peoplepay360.dto.TimeOffDtos.*;
+import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
+
+import java.time.LocalDate;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -28,9 +33,11 @@ public class TimeOffController {
 
     // allocations
     @GetMapping("/allocations")
-    public List<AllocationDto> allocations(@RequestParam(required = false) Long employeeId,
-                                           @RequestParam(required = false) String state) {
-        return service.listAllocations(employeeId, state);
+    public PageResponse<AllocationDto> allocations(@RequestParam(required = false) Long employeeId,
+                                                   @RequestParam(required = false) String state,
+                                                   @RequestParam(required = false) Long typeId,
+                                                   Pageable pageable) {
+        return PageResponse.of(service.listAllocations(employeeId, state, typeId, pageable));
     }
     @PostMapping("/allocations")
     public AllocationDto createAllocation(@Valid @RequestBody CreateAllocation in) {
@@ -47,9 +54,15 @@ public class TimeOffController {
 
     // requests
     @GetMapping("/requests")
-    public List<RequestDto> requests(@RequestParam(required = false) Long employeeId,
-                                     @RequestParam(required = false) String state) {
-        return service.listRequests(employeeId, state);
+    public PageResponse<RequestDto> requests(
+            @RequestParam(required = false) Long employeeId,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) Long typeId,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Pageable pageable) {
+        return PageResponse.of(service.listRequests(employeeId, state, typeId, departmentId, from, to, pageable));
     }
     @GetMapping("/requests/{id}")
     public RequestDto getRequest(@PathVariable Long id) { return service.getRequest(id); }
@@ -71,4 +84,10 @@ public class TimeOffController {
     // holidays
     @GetMapping("/holidays")
     public List<HolidayDto> holidays(@RequestParam int year) { return service.holidays(year); }
+
+    @PostMapping("/holidays")
+    public HolidayDto createHoliday(@Valid @RequestBody SaveHoliday in) { return service.createHoliday(in); }
+
+    @DeleteMapping("/holidays/{id}")
+    public void deleteHoliday(@PathVariable Long id) { service.deleteHoliday(id); }
 }

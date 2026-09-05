@@ -102,10 +102,12 @@ search.
 Configuration is one paste: pick **OpenRouter**, **NVIDIA NIM** or **Ollama**, fetch the model list,
 choose a model, connect. Ollama needs no key.
 
-> [!IMPORTANT]
-> The assistant answers from the model only. It cannot read live records yet. Tool-backed lookups
-> depend on the MCP service, which is **not part of this build** and is marked *coming soon* in the
-> UI.
+The assistant reads live records through the MCP service on port 8000, which exposes thirteen
+read-only tools. Every lookup is delegated with a short-lived token carrying only the signed-in
+person's own permissions, so an employee asking for company payroll totals is refused by the same
+rules that govern the screens. Each answer shows which lookups it used, and the records themselves
+appear beneath it. With the MCP service stopped, the assistant falls back to the model alone and
+says so in the composer.
 
 ### 11. Users, access and invites
 A login is created **from an employee record**: the picker lists only active, onboarded employees
@@ -166,7 +168,7 @@ PeoplePay360-HR-Payroll/
 │   │   ├── auth/                   # Auth provider and permissions
 │   │   ├── components/ui/          # Design-system primitives
 │   │   ├── features/               # One folder per module
-│   │   └── mocks/                  # MSW handlers for offline UI work
+│   │   └── test/                   # Vitest setup and the MSW fixtures used by integration tests
 │   └── vite.config.ts              # Dev server on 5173, proxies /api to 8080
 │
 └── README.md
@@ -313,18 +315,21 @@ Because of the login rate limit, allow a backend restart between consecutive ful
 
 ## Known limitations
 
-* **MCP tool calling is not implemented.** The assistant answers from the model without reading
-  live records. The UI marks this as coming soon.
 * **Single tenant.** The company name is a configuration value, not a table.
 * **Time off types have no approval-authority field.** The mockup shows one; it was left out rather
   than adding a control that enforces nothing.
-* The frontend ships as a single bundle; no route-level code splitting yet.
+* **Recruitment has no screen.** The backend endpoints exist and the assistant can compare
+  candidates, but nothing in the navigation opens them.
+* **The assistant needs a model that calls tools.** A reasoning-first model such as `deepseek-r1`
+  answers slowly without reading any records, and a vision model is refused outright. The model
+  picker ranks tool-capable models first for that reason. On Ollama the smallest that works well is
+  `qwen3:1.7b` (about 1.4 GB); pull it with `ollama pull qwen3:1.7b`.
 
 ---
 
 ## Roadmap
 
-* MCP service for tool-backed assistant queries against live records
-* Route-level code splitting
+* A recruitment screen over the existing endpoints
 * Multi-company support
 * Configurable approval chains for time off
+* Streaming assistant replies, rather than revealing a completed one

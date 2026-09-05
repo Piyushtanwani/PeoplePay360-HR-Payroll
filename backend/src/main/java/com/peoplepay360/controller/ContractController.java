@@ -1,11 +1,12 @@
 package com.peoplepay360.controller;
 
+import com.peoplepay360.common.PageResponse;
 import com.peoplepay360.dto.ContractDtos.*;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
-import java.util.List;
 import com.peoplepay360.service.ContractService;
 
 @RestController
@@ -15,10 +16,13 @@ public class ContractController {
     public ContractController(ContractService service) { this.service = service; }
 
     @GetMapping
-    public List<ContractDto> list(@RequestParam(required = false) Long employeeId,
-                                  @RequestParam(required = false) String state,
-                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endsBefore) {
-        return service.list(employeeId, state, endsBefore);
+    public PageResponse<ContractDto> list(
+            @RequestParam(required = false) Long employeeId,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endsBefore,
+            @RequestParam(required = false) String q,
+            Pageable pageable) {
+        return PageResponse.of(service.list(employeeId, state, endsBefore, q, pageable));
     }
     @GetMapping("/{id}")
     public ContractDto get(@PathVariable Long id) { return service.get(id); }

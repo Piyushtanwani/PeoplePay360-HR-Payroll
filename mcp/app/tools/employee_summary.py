@@ -9,7 +9,7 @@ from app.views import format_tool_result
 @registry.register(
     name="employee_summary",
     description="Fetches a comprehensive 360 overview of an employee including job, department, manager, schedule, and activity counts.",
-    required_permission="employee.read",
+    required_permission="employee.read.own",
     parameters={
         "type": "object",
         "properties": {

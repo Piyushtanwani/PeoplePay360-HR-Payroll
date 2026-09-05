@@ -1,60 +1,123 @@
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
-import { api } from '@/api/client'
-import { useEmployeeOptions } from '@/api/hooks'
+import { FileText } from 'lucide-react'
+import { useEmployeeOptions, usePayslips } from '@/api/hooks'
 import { useAuth } from '@/auth/AuthProvider'
-import { Card, Chip, DataTable, MonthPicker, PageHeader, Select, StatusBadge } from '@/components/ui'
-import { fmtDate, money } from '@/lib/format'
-import type { Page, Payslip } from '@/api/types'
+import {
+  Card, DataTable, HelpItems, HelpPopover, MonthPicker, PageHeader, Select, StatusBadge, type Column,
+} from '@/components/ui'
+import { fmtRange, money } from '@/lib/format'
+import { useNumberParamState, useSearchParamState } from '@/lib/hooks/useSearchParamState'
+import { useTableState } from '@/lib/hooks/useTableState'
 import { PayslipSheet } from './PayslipSheet'
+import type { Payslip } from '@/api/types'
 
 export function PayslipsPage() {
   const { can } = useAuth()
-  const seesAll = can('payslip.read.all')
-  const employees = useEmployeeOptions(seesAll)
-  const [searchParams] = useSearchParams()
-  const [period, setPeriod] = React.useState<string | null>(null)
-  const [employeeId, setEmployeeId] = React.useState<number | null>(null)
-  const [open, setOpen] = React.useState<number | null>(searchParams.get('payslipId') ? Number(searchParams.get('payslipId')) : null)
+  const seesEveryone = can('payslip.read.all')
+  const employees = useEmployeeOptions(seesEveryone)
 
-  const query = useQuery({
-    queryKey: ['payslips', period, employeeId],
-    queryFn: () => api.page<Payslip>('/api/payslips', { period, employeeId, size: 200 }),
-  })
+  const [period, setPeriod] = useSearchParamState<string>('period', '')
+  const [employeeId, setEmployeeId] = useNumberParamState('employeeId')
+  const [payslipId, setPayslipId] = useNumberParamState('payslipId')
+
+  // Newest period first, then by person, so a month reads as one alphabetical block.
+  const table = useTableState({ defaultSort: 'periodStart', defaultDir: 'desc' })
+  const list = usePayslips({ ...table.params, period: period || undefined, employeeId })
+
+  const columns: Column<Payslip>[] = [
+    {
+      key: 'employeeId',
+      header: 'Employee',
+      sortable: true,
+      hidden: !seesEveryone,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.employeeName}</p>
+          <p className="tnum truncate text-xs2 text-label2">{r.employeeNo}</p>
+        </div>
+      ),
+    },
+    { key: 'periodStart', header: 'Period', sortable: true, render: (r) => fmtRange(r.periodStart, r.periodEnd) },
+    { key: 'payrun', header: 'Payrun', render: (r) => r.payrunName },
+    { key: 'gross', header: 'Gross', align: 'right', sortable: true, render: (r) => money(r.gross) },
+    { key: 'deductions', header: 'Deductions', align: 'right', sortable: true, render: (r) => money(r.deductions) },
+    { key: 'net', header: 'Net', align: 'right', sortable: true, render: (r) => <span className="font-semibold">{money(r.net)}</span> },
+    {
+      key: 'delivery',
+      header: 'Payslip sent',
+      tooltip: 'Whether the payslip has been emailed to the person.',
+      render: (r) => <StatusBadge status={r.delivery?.status ?? 'NOT_SENT'} />,
+    },
+  ]
 
   return (
     <>
-      <PageHeader title="Payslips" description="Selecting a payslip opens the detailed salary computation and the PDF action." />
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="w-52"><MonthPicker value={period ?? ''} onChange={setPeriod} /></div>
-        {seesAll ? (
-          <Select className="w-64" value={employeeId} onChange={setEmployeeId} clearable onClear={() => setEmployeeId(null)} placeholder="All employees"
-            options={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: e.employeeNo }))} />
-        ) : null}
-        <span className="text-sm2 text-label2">{query.data?.totalElements ?? 0} payslips</span>
-      </div>
+      <PageHeader
+        title="Payslips"
+        description={
+          seesEveryone
+            ? 'Every payslip produced by a payrun. Open one to see how the figure was reached.'
+            : 'Your payslips. Open one to see exactly how the amount was calculated.'
+        }
+        help={
+          <HelpPopover title="Reading a payslip">
+            <HelpItems
+              items={[
+                { term: 'How it is built', text: 'The salary structure’s rules run in order; each produces one line.' },
+                { term: 'Net', text: 'Always gross less deductions, which the system checks before saving.' },
+                { term: 'Inputs', text: 'Days worked, scheduled and unpaid, plus overtime hours, all from attendance and leave.' },
+                { term: 'Immutable', text: 'A payslip cannot be edited once produced. Correct the data and recompute the payrun.' },
+              ]}
+            />
+          </HelpPopover>
+        }
+      />
 
       <Card>
         <DataTable
-          rows={query.data?.content ?? []}
-          loading={query.isLoading}
-          onRowClick={(row) => setOpen(row.id)}
-          columns={[
-            ...(seesAll ? [{ key: 'employee', header: 'Employee', render: (r: Payslip) => r.employeeName, sortValue: (r: Payslip) => r.employeeName }] : []),
-            { key: 'period', header: 'Period', render: (r) => `${fmtDate(r.periodStart)} — ${fmtDate(r.periodEnd)}`, sortValue: (r) => r.periodStart },
-            { key: 'payrun', header: 'Payrun', render: (r) => r.payrunName },
-            { key: 'basic', header: 'Basic', align: 'right', render: (r) => money(r.basic, { compact: true }) },
-            { key: 'gross', header: 'Gross', align: 'right', render: (r) => money(r.gross, { compact: true }) },
-            { key: 'net', header: 'Net', align: 'right', render: (r) => <span className="font-semibold">{money(r.net, { compact: true })}</span>, sortValue: (r) => r.net },
-            { key: 'state', header: 'Payrun state', render: (r) => <StatusBadge status={r.payrunState} /> },
-            { key: 'delivery', header: 'Delivery', render: (r) => <Chip tone={r.delivery.status === 'SENT' ? 'ok' : r.delivery.status === 'FAILED' ? 'bad' : 'neutral'}>{r.delivery.status.replace(/_/g, ' ').toLowerCase()}</Chip> },
-          ]}
+          rows={list.data?.content ?? []}
+          columns={columns}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          onRowClick={(r) => setPayslipId(r.id)}
+          toolbar={{
+            search: seesEveryone ? 'Search by name or number' : false,
+            filters: (
+              <>
+                <MonthPicker value={period} onChange={setPeriod} clearable placeholder="All periods" className="w-48" />
+                {seesEveryone ? (
+                  <Select
+                    value={employeeId}
+                    onChange={setEmployeeId}
+                    clearable
+                    onClear={() => setEmployeeId(null)}
+                    placeholder="All employees"
+                    className="w-56"
+                    options={(employees.data?.content ?? []).map((e) => ({
+                      value: e.id,
+                      label: e.displayName,
+                      description: e.employeeNo,
+                    }))}
+                  />
+                ) : null}
+              </>
+            ),
+          }}
+          empty={{
+            icon: <FileText className="h-6 w-6" />,
+            title: 'No payslips',
+            description: seesEveryone
+              ? 'Payslips appear once a payrun has been computed.'
+              : 'Your payslips appear here once payroll has run for the period.',
+          }}
         />
       </Card>
 
-      {open ? <PayslipSheet payslipId={open} onClose={() => setOpen(null)} /> : null}
+      <PayslipSheet payslipId={payslipId} onOpenChange={(open) => !open && setPayslipId(null)} />
     </>
   )
 }

@@ -20,8 +20,11 @@ public class AdminUserController {
     }
 
     @GetMapping("/users")
-    public PageResponse<UserDetail> list(@RequestParam(required = false) String q, Pageable pageable) {
-        return PageResponse.of(users.list(q, pageable));
+    public PageResponse<UserDetail> list(@RequestParam(required = false) String q,
+                                         @RequestParam(required = false) Boolean active,
+                                         @RequestParam(required = false) String roleCode,
+                                         Pageable pageable) {
+        return PageResponse.of(users.list(q, active, roleCode, pageable));
     }
     @GetMapping("/users/{id}")
     public UserDetail get(@PathVariable Long id) { return users.get(id); }

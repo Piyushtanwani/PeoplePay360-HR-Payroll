@@ -7,7 +7,4 @@ public record PageResponse<T>(List<T> content, int page, int size, long totalEle
     public static <T> PageResponse<T> of(Page<T> p) {
         return new PageResponse<>(p.getContent(), p.getNumber(), p.getSize(), p.getTotalElements(), p.getTotalPages());
     }
-    public static <S, T> PageResponse<T> of(Page<S> p, List<T> mapped) {
-        return new PageResponse<>(mapped, p.getNumber(), p.getSize(), p.getTotalElements(), p.getTotalPages());
-    }
 }

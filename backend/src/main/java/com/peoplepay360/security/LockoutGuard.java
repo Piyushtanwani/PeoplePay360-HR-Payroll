@@ -1,7 +1,6 @@
 package com.peoplepay360.security;
 
 import com.peoplepay360.common.ApiException;
-import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.repository.EffectivePermissionRepository;
 import org.springframework.stereotype.Component;
 
@@ -16,8 +15,7 @@ public class LockoutGuard {
     public void assertNotLastGrantAdmin(boolean userCurrentlyHoldsGrant) {
         if (!userCurrentlyHoldsGrant) return;
         if (effective.countUsersWithPermission(KEY) <= 1) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE,
-                    "This change would leave no administrator able to grant permissions.");
+            throw ApiException.illegalState("This change would leave no administrator able to grant permissions.");
         }
     }
 }

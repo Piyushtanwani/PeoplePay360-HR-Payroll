@@ -6,7 +6,11 @@ import com.peoplepay360.common.audit.Channel;
 import com.peoplepay360.dto.IdentityDtos.*;
 import com.peoplepay360.security.AuthorityService;
 import com.peoplepay360.security.LockoutGuard;
+import com.peoplepay360.common.Paging;
+import com.peoplepay360.common.Specs;
+import com.peoplepay360.security.CurrentUser;
 import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -17,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import com.peoplepay360.model.AppUser;
 import com.peoplepay360.model.Role;
 import com.peoplepay360.model.UserPermissionGrant;
@@ -27,6 +32,11 @@ import com.peoplepay360.repository.UserPermissionGrantRepository;
 
 @Service
 public class AdminUserService {
+    private static final Map<String, String> SORTS = Map.of(
+            "email", "email", "displayName", "displayName", "active", "active",
+            "createdAt", "createdAt", "roleCode", "role.code");
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Order.asc("displayName"));
+
     private final AppUserRepository users;
     private final RoleRepository roles;
     private final UserPermissionGrantRepository grants;
@@ -39,17 +49,20 @@ public class AdminUserService {
     private final com.peoplepay360.config.AppProperties props;
     private final com.peoplepay360.repository.EmployeeRepository employees;
     private final com.peoplepay360.repository.DepartmentRepository departments;
+    private final CurrentUser currentUser;
 
     public AdminUserService(AppUserRepository users, RoleRepository roles, UserPermissionGrantRepository grants,
                             EffectivePermissionRepository effective, PasswordEncoder encoder,
                             AuthorityService authorityService, LockoutGuard lockoutGuard, AuditService audit,
                             UserInviteService invites, com.peoplepay360.config.AppProperties props,
                             com.peoplepay360.repository.EmployeeRepository employees,
-                            com.peoplepay360.repository.DepartmentRepository departments) {
+                            com.peoplepay360.repository.DepartmentRepository departments,
+                            CurrentUser currentUser) {
         this.invites = invites;
         this.props = props;
         this.employees = employees;
         this.departments = departments;
+        this.currentUser = currentUser;
         this.users = users;
         this.roles = roles;
         this.grants = grants;
@@ -62,17 +75,20 @@ public class AdminUserService {
 
     @PreAuthorize("hasAuthority('user.read')")
     @Transactional(readOnly = true)
-    public Page<UserDetail> list(String q, Pageable pageable) {
+    public Page<UserDetail> list(String q, Boolean active, String roleCode, Pageable pageable) {
         Specification<AppUser> spec = (root, cq, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (q != null && !q.isBlank()) {
-                String like = "%" + q.toLowerCase() + "%";
-                ps.add(cb.or(cb.like(cb.lower(root.get("email")), like),
-                        cb.like(cb.lower(root.get("displayName")), like)));
+                ps.add(cb.or(Specs.like(cb, root.get("email"), q),
+                        Specs.like(cb, root.get("displayName"), q)));
+            }
+            if (active != null) ps.add(cb.equal(root.get("active"), active));
+            if (roleCode != null && !roleCode.isBlank()) {
+                ps.add(cb.equal(root.join("role").get("code"), roleCode));
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        return users.findAll(spec, pageable).map(this::toDetail);
+        return users.findAll(spec, Paging.normalise(pageable, DEFAULT_SORT, SORTS)).map(this::toDetail);
     }
 
     @PreAuthorize("hasAuthority('user.read')")
@@ -85,6 +101,7 @@ public class AdminUserService {
     @Transactional
     public CreateUserResult create(CreateUser in) {
         Role role = roles.findByCode(in.roleCode()).orElseThrow(() -> ApiException.validation("Unknown role"));
+        assertMayAssign(role.getCode());
         users.findByEmailIgnoreCase(in.email()).ifPresent(x -> {
             throw ApiException.conflict("A user with that email already exists.");
         });
@@ -106,6 +123,7 @@ public class AdminUserService {
                 ? java.util.UUID.randomUUID() + java.util.UUID.randomUUID().toString()
                 : in.password()));
         u = users.save(u);
+        linkEmployee(u);
         audit.record(Channel.UI, "CREATE_USER", "user", u.getId().toString(), "ALLOW", null, null, null);
 
         if (!invite) {
@@ -136,9 +154,7 @@ public class AdminUserService {
     @PreAuthorize("hasAuthority('user.create')")
     @Transactional(readOnly = true)
     public List<InvitableEmployee> invitableEmployees() {
-        java.util.Set<Long> linked = users.findAll().stream()
-                .map(AppUser::getEmployeeId).filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<Long> linked = new java.util.HashSet<>(users.findLinkedEmployeeIds());
         return employees.findAll().stream()
                 .filter(e -> e.isActive() && !linked.contains(e.getId()))
                 .map(e -> new InvitableEmployee(e.getId(), e.getEmployeeNo(), e.getDisplayName(),
@@ -155,7 +171,10 @@ public class AdminUserService {
     public UserDetail update(Long id, UpdateUser in) {
         AppUser u = users.findById(id).orElseThrow(() -> ApiException.notFound("user"));
         if (in.displayName() != null) u.setDisplayName(in.displayName());
-        if (in.employeeId() != null) u.setEmployeeId(in.employeeId());
+        if (in.employeeId() != null) {
+            u.setEmployeeId(in.employeeId());
+            linkEmployee(u);
+        }
         if (in.password() != null && !in.password().isBlank()) u.setPasswordHash(encoder.encode(in.password()));
         if (in.active() != null) {
             if (!in.active()) lockoutGuard.assertNotLastGrantAdmin(holdsGrantAdmin(id));
@@ -171,6 +190,7 @@ public class AdminUserService {
     public UserDetail assignRole(Long id, RoleAssign in) {
         AppUser u = users.findById(id).orElseThrow(() -> ApiException.notFound("user"));
         Role role = roles.findByCode(in.roleCode()).orElseThrow(() -> ApiException.validation("Unknown role"));
+        assertMayAssign(role.getCode());
         if (holdsGrantAdmin(id) && !"ADMIN".equals(in.roleCode())) {
             lockoutGuard.assertNotLastGrantAdmin(true);
         }
@@ -188,6 +208,28 @@ public class AdminUserService {
         List<String> fromRole = new ArrayList<>(eff); // role-derived subset approximation for display
         List<GrantDto> grantDtos = grants.findByUserIdOrderByGrantedAtDesc(id).stream().map(this::toGrant).toList();
         return new UserPermissions(eff, fromRole, grantDtos);
+    }
+
+    /**
+     * HR roles may create logins so that onboarding is one action, but only an administrator may mint
+     * another administrator. Without this, user.create would be a route to full access.
+     */
+    private void assertMayAssign(String roleCode) {
+        if (!"ADMIN".equals(roleCode)) return;
+        if (!"ADMIN".equals(currentUser.get().roleCode())) {
+            throw new com.peoplepay360.common.PermissionDeniedException("role.assign.admin");
+        }
+    }
+
+    /** Keeps the employee's pointer to their login in step; only the seeder used to set it. */
+    private void linkEmployee(AppUser u) {
+        if (u.getEmployeeId() == null) return;
+        employees.findById(u.getEmployeeId()).ifPresent(e -> e.setUserId(u.getId()));
+    }
+
+    /** The employee ids that already have a login, used by the onboarding flow to refuse duplicates. */
+    boolean hasLogin(Long employeeId) {
+        return users.findByEmployeeId(employeeId).isPresent();
     }
 
     boolean holdsGrantAdmin(Long userId) {

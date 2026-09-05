@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
 import { useAuth } from '@/auth/AuthProvider'
-import type { Page, Payrun, TimeOffRequest } from '@/api/types'
+import type { Payrun, TimeOffRequest } from '@/api/types'
 
 export function NotificationBell() {
   const { can } = useAuth()

@@ -3,13 +3,13 @@ from app.backend import backend_client
 from app.blocks import kpi_block, table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, rows_of
 
 
 @registry.register(
     name="payrun_list_issues",
     description="Lists validation issues and blocker alerts for a specific payrun before finalization (e.g. missing bank accounts, unapproved leaves, active contract conflicts).",
-    required_permission="payroll.read",
+    required_permission="payrun.read",
     parameters={
         "type": "object",
         "properties": {
@@ -34,10 +34,11 @@ async def payrun_list_issues_tool(
         params["severity"] = args["severity"]
 
     data = await backend_client.get(f"/api/payruns/{payrun_id}/issues", params=params, token=token)
-    if not data or not isinstance(data, list):
+    rows_from_backend = rows_of(data)
+    if not rows_from_backend:
         return f"No issues found for payrun #{payrun_id}. The payrun is clean.", [], "payrun_issue", str(payrun_id)
 
-    formatted = format_tool_result(data)
+    formatted = format_tool_result(rows_from_backend)
     issues = formatted["ui_view"]
 
     rows = []

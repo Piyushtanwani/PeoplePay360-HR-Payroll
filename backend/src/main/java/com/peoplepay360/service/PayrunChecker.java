@@ -1,11 +1,13 @@
 package com.peoplepay360.service;
 
 import com.peoplepay360.model.Contract;
-import com.peoplepay360.service.ContractResolver;
 import com.peoplepay360.model.Employee;
 import com.peoplepay360.repository.EmployeeBankAccountRepository;
 import com.peoplepay360.repository.EmployeeRepository;
 import com.peoplepay360.repository.TimeOffRequestRepository;
+import com.peoplepay360.model.Attendance;
+import com.peoplepay360.model.Payslip;
+import com.peoplepay360.repository.AttendanceRepository;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -22,15 +24,20 @@ public class PayrunChecker {
     private final PayslipRepository payslips;
     private final ContractResolver contractResolver;
     private final TimeOffRequestRepository requests;
+    private final AttendanceRepository attendance;
+    private final VarianceService varianceService;
 
     public PayrunChecker(EmployeeRepository employees, EmployeeBankAccountRepository banks,
                          PayslipRepository payslips, ContractResolver contractResolver,
-                         TimeOffRequestRepository requests) {
+                         TimeOffRequestRepository requests, AttendanceRepository attendance,
+                         VarianceService varianceService) {
         this.employees = employees;
         this.banks = banks;
         this.payslips = payslips;
         this.contractResolver = contractResolver;
         this.requests = requests;
+        this.attendance = attendance;
+        this.varianceService = varianceService;
     }
 
     public List<PayrunIssue> check(Payrun payrun, List<Long> employeeIds) {
@@ -87,7 +94,28 @@ public class PayrunChecker {
             if (pending > 0) {
                 issues.add(issue(payrun, empId, "PENDING_LEAVE_IN_PERIOD", "WARNING", true,
                         e.getDisplayName() + " has pending leave in the period.",
-                        "/timeoff/requests?employeeId=" + empId + "&state=PENDING"));
+                        "/timeoff?tab=requests&employeeId=" + empId + "&state=PENDING"));
+            }
+
+            // Attendance nobody closed makes the worked-days input understate the month.
+            long openEntries = attendance.findRange(empId, payrun.getPeriodStart(), payrun.getPeriodEnd())
+                    .stream().filter(a -> a.getCheckIn() != null && a.getCheckOut() == null).count();
+            if (openEntries > 0) {
+                issues.add(issue(payrun, empId, "MISSING_CHECKOUT_IN_PERIOD", "WARNING", true,
+                        e.getDisplayName() + " has " + openEntries
+                                + " attendance entry(s) with no check-out, so worked days may be understated.",
+                        "/attendance?tab=exceptions&employeeId=" + empId));
+            }
+
+            // A large move against last month is usually a data problem, so it is surfaced before payment.
+            for (Payslip slip : payslips.findByPayrunId(payrun.getId())) {
+                if (!slip.getEmployeeId().equals(empId)) continue;
+                if (varianceService.isFlagged(slip)) {
+                    issues.add(issue(payrun, empId, "VARIANCE_FLAG", "WARNING", true,
+                            e.getDisplayName() + "'s net pay moved more than "
+                                    + varianceService.thresholdPct() + "% against their previous payslip.",
+                            "/payroll/payslips?payslipId=" + slip.getId()));
+                }
             }
         }
         return issues;

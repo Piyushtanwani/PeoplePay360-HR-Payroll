@@ -2,7 +2,6 @@ package com.peoplepay360.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.peoplepay360.common.ApiException;
-import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
 import com.peoplepay360.dto.ContractDtos;
@@ -151,11 +150,11 @@ public class RecruitmentService {
             return toView(c);
         }
         if ("HIRED".equals(to)) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Candidates become HIRED only through conversion.");
+            throw ApiException.illegalState("Candidates become HIRED only through conversion.");
         }
         int fi = ORDER.indexOf(from), ti = ORDER.indexOf(to);
         if (fi < 0 || ti < 0 || Math.abs(ti - fi) != 1) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Illegal stage transition from " + from + " to " + to);
+            throw ApiException.illegalState("Illegal stage transition from " + from + " to " + to);
         }
         c.setStage(to);
         return toView(c);
@@ -219,18 +218,20 @@ public class RecruitmentService {
     public Map<String, Long> convert(Long candidateId, ConvertInput in) {
         Candidate c = require(candidateId);
         if (!"OFFER".equals(c.getStage())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a candidate at OFFER stage can be converted.");
+            throw ApiException.illegalState("Only a candidate at OFFER stage can be converted.");
         }
         boolean advanced = decisions.findByCandidateId(candidateId).stream()
                 .anyMatch(d -> "ADVANCE".equals(d.getDecision()));
         if (!advanced) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "An ADVANCE decision is required before conversion.");
+            throw ApiException.illegalState("An ADVANCE decision is required before conversion.");
         }
         CandidateIdentity id = identities.findById(candidateId)
                 .orElseThrow(() -> ApiException.notFound("identity"));
+        // No role and no template here: hiring creates the person and their contract, and an
+        // administrator issues the login separately once the start date is confirmed.
         EmployeeDtos.CreateEmployee ce = new EmployeeDtos.CreateEmployee(
                 id.getDisplayName(), in.departmentId(), null, "FULL_TIME", in.workingScheduleId(),
-                LocalDate.now(), id.getEmail(), in.jobTitle());
+                LocalDate.now(), id.getEmail(), in.jobTitle(), null, null, null, null);
         EmployeeDtos.EmployeeDetail emp = employeeService.create(ce);
         ContractDtos.CreateContract cc = new ContractDtos.CreateContract(
                 emp.id(), in.wage(), "MONTHLY", in.startDate(), null, in.workingScheduleId(),

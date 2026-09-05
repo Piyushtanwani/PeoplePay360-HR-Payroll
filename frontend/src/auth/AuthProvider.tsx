@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, configureClient } from '@/api/client'
 import { setCurrency } from '@/lib/format'
+import { setTimeZone } from '@/lib/dates'
 import type { MeResponse, UserSummary } from '@/api/types'
 
 interface AuthState {
@@ -59,6 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setMe(response)
       setSessionError(null)
       setCurrency(response.settings.currency)
+      // Timestamps are shown in the company timezone, so they match how the server classified them.
+      setTimeZone(response.settings.timezone)
       setLoading(false)
     } catch (error) {
       const status = error instanceof ApiError ? error.status : 0
@@ -134,13 +137,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+/* eslint-disable-next-line react-refresh/only-export-components -- a context and its own hook belong in one file */
 export function useAuth() {
   const context = React.useContext(AuthContext)
   if (!context) throw new Error('useAuth must be used inside AuthProvider')
   return context
-}
-
-export function usePermission() {
-  const { can, canAny, permissions } = useAuth()
-  return { can, canAny, permissions }
 }

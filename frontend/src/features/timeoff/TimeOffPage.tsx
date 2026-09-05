@@ -1,358 +1,418 @@
 import * as React from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import * as Tabs from '@radix-ui/react-tabs'
-import { Plus } from 'lucide-react'
-import { api, ApiError } from '@/api/client'
-import { useDepartments, useEmployeeOptions, useTimeOffTypes } from '@/api/hooks'
+import { Link } from 'react-router-dom'
+import { CalendarOff, CalendarPlus, Plus, Trash2 } from 'lucide-react'
+import {
+  useCreateAllocation, useCreateHoliday, useDecideAllocation, useDecideRequest, useDeleteHoliday,
+  useEmployeeOptions, useHolidays, useLeaveBalances, useSaveTimeOffType, useTimeOffAllocations,
+  useTimeOffRequests, useTimeOffTypes,
+} from '@/api/hooks'
+import { ALLOCATION_STATE_OPTIONS, REQUEST_STATE_OPTIONS } from '@/api/constants'
 import { useAuth } from '@/auth/AuthProvider'
 import {
-  Button, Callout, Card, CardHeader, Chip, DataTable, DateField, Field, PageHeader, Select, Sheet,
-  StatusBadge, TextArea, Toggle, Tooltip, useToast,
+  ActiveBadge, Button, Card, ConfirmDialog, DataTable, DateField, DetailList, Field, HelpItems,
+  HelpPopover, IconButton, NumberInput, PageHeader, Select, Sheet, StatusBadge, StatusLegend,
+  TabPanel, Tabs, TextInput, Toggle, Tooltip, type Column,
 } from '@/components/ui'
+import { nearbyYears, todayIso, yearBounds } from '@/lib/dates'
 import { fmtDate } from '@/lib/format'
-import type { Holiday, LeaveBalance, Page, TimeOffAllocation, TimeOffRequest, TimeOffType } from '@/api/types'
-
-const TAB_CLASS = 'rounded-control px-3 py-1.5 text-sm2 font-medium text-label2 data-[state=active]:bg-surface data-[state=active]:text-label data-[state=active]:shadow-sm'
-const REQUEST_STATES = ['PENDING', 'NEEDS_ATTENTION', 'APPROVED', 'REFUSED', 'CANCELLED'].map((s) => ({ value: s, label: s.replace(/_/g, ' ').toLowerCase() }))
+import { useNumberParamState, useSearchParamState } from '@/lib/hooks/useSearchParamState'
+import { useTableState } from '@/lib/hooks/useTableState'
+import { LeaveBalanceCards } from '../employees/LeaveBalanceCards'
+import { NewRequestSheet } from './NewRequestSheet'
+import type { Holiday, TimeOffAllocation, TimeOffRequest, TimeOffType } from '@/api/types'
 
 export function TimeOffPage() {
   const { can } = useAuth()
-  const [tab, setTab] = React.useState('requests')
-  const seesAll = can('timeoff_request.read.all')
+  const seesEveryone = can('timeoff_request.read.all')
+  const balances = useLeaveBalances(null, !seesEveryone)
 
   return (
     <>
-      <PageHeader title="Time off" description={seesAll ? 'Requests, allocations, policy types and public holidays.' : 'Request leave and track your balances.'} />
-      <BalanceCards />
-      <Tabs.Root value={tab} onValueChange={setTab}>
-        <Tabs.List className="mb-4 inline-flex gap-1 rounded-control bg-surface2 p-0.5">
-          <Tabs.Trigger value="requests" className={TAB_CLASS}>Requests</Tabs.Trigger>
-          {can('timeoff_allocation.read.own') ? <Tabs.Trigger value="allocations" className={TAB_CLASS}>Allocations</Tabs.Trigger> : null}
-          <Tabs.Trigger value="types" className={TAB_CLASS}>Types</Tabs.Trigger>
-          <Tabs.Trigger value="holidays" className={TAB_CLASS}>Holidays</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="requests"><RequestsTab /></Tabs.Content>
-        <Tabs.Content value="allocations"><AllocationsTab /></Tabs.Content>
-        <Tabs.Content value="types"><TypesTab /></Tabs.Content>
-        <Tabs.Content value="holidays"><HolidaysTab /></Tabs.Content>
-      </Tabs.Root>
-    </>
-  )
-}
+      <PageHeader
+        title="Time off"
+        description="Leave requests, the allocations that create balance, the types on offer, and the public holidays."
+        help={
+          <HelpPopover title="How leave works here">
+            <HelpItems
+              items={[
+                { term: 'Allocation first', text: 'Balance comes from an approved allocation. A draft allocation grants nothing.' },
+                { term: 'Counting days', text: 'From the working schedule, so weekends and public holidays are not deducted.' },
+                { term: 'Needs attention', text: 'A request for more days than are available. It can still be approved deliberately.' },
+                { term: 'Paid and unpaid', text: 'Unpaid leave reduces that month’s pay through the payroll input for unpaid days.' },
+                { term: 'Own requests', text: 'Nobody approves or refuses their own, including administrators.' },
+              ]}
+            />
+          </HelpPopover>
+        }
+      />
 
-function BalanceCards() {
-  const balances = useQuery({ queryKey: ['timeoff', 'balances', 'me'], queryFn: () => api.get<LeaveBalance[]>('/api/timeoff/balances') })
-  if (!balances.data?.length) return null
-  return (
-    <div className="mb-5 grid gap-3 sm:grid-cols-3">
-      {balances.data.map((balance) => (
-        <Card key={balance.typeId} className="p-4">
-          <p className="text-sm2 text-label2">{balance.typeName}</p>
-          <p className="tnum mt-1 text-d3 font-semibold">{balance.available} days</p>
-          <p className="tnum mt-1 text-xs2 text-label2">{balance.allocated} allocated · {balance.taken} taken · {balance.pending} pending</p>
-        </Card>
-      ))}
-    </div>
+      {!seesEveryone ? (
+        <div className="mb-4">
+          <LeaveBalanceCards balances={balances.data ?? []} loading={balances.isLoading} />
+        </div>
+      ) : null}
+
+      <Tabs
+        urlKey="tab"
+        items={[
+          { value: 'requests', label: 'Requests' },
+          { value: 'allocations', label: 'Allocations', hidden: !can('timeoff_allocation.read.own') },
+          { value: 'types', label: 'Types', hidden: !can('timeoff_type.read') },
+          { value: 'holidays', label: 'Holidays', hidden: !can('timeoff_type.read') },
+        ]}
+      >
+        <TabPanel value="requests"><RequestsTab /></TabPanel>
+        <TabPanel value="allocations"><AllocationsTab /></TabPanel>
+        <TabPanel value="types"><TypesTab /></TabPanel>
+        <TabPanel value="holidays"><HolidaysTab /></TabPanel>
+      </Tabs>
+    </>
   )
 }
 
 function RequestsTab() {
-  const { can, employeeId } = useAuth()
-  const queryClient = useQueryClient()
-  const toast = useToast()
+  const { can, employeeId: myEmployeeId } = useAuth()
+  const canApprove = can('timeoff_request.approve')
+  const canCreate = can('timeoff_request.create.own') || can('timeoff_request.create.all')
+  const employees = useEmployeeOptions(can('employee.read.all'))
   const types = useTimeOffTypes()
-  const departments = useDepartments()
-  const seesAll = can('timeoff_request.read.all')
-  const employees = useEmployeeOptions(seesAll)
 
-  const [state, setState] = React.useState<string | null>(null)
-  const [typeId, setTypeId] = React.useState<number | null>(null)
-  const [departmentId, setDepartmentId] = React.useState<number | null>(null)
+  const [state, setState] = useSearchParamState<string>('state', '')
+  const [typeId, setTypeId] = useNumberParamState('typeId')
+  const [employeeId, setEmployeeId] = useNumberParamState('employeeId')
+
+  const table = useTableState({ defaultSort: 'startDate', defaultDir: 'desc' })
+  const list = useTimeOffRequests({ ...table.params, state: state || undefined, typeId, employeeId })
+
   const [creating, setCreating] = React.useState(false)
   const [open, setOpen] = React.useState<TimeOffRequest | null>(null)
+  const [cancelling, setCancelling] = React.useState<TimeOffRequest | null>(null)
+  const decide = useDecideRequest()
 
-  const query = useQuery({
-    queryKey: ['timeoff', 'requests', state, typeId, departmentId],
-    queryFn: () => api.page<TimeOffRequest>('/api/timeoff/requests', { state, typeId, departmentId, size: 200 }),
-  })
-
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['timeoff'] })
-
-  const decide = useMutation({
-    mutationFn: ({ id, action }: { id: number; action: 'approve' | 'refuse' }) => api.post<TimeOffRequest>(`/api/timeoff/requests/${id}/${action}`),
-    onSuccess: (_, { action }) => { invalidate(); setOpen(null); toast.push({ tone: 'success', title: action === 'approve' ? 'Request approved' : 'Request refused' }) },
-    onError: (error) => toast.push({ tone: 'error', title: 'Decision failed', detail: error instanceof ApiError ? error.detail : '' }),
-  })
-
-  const create = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post<TimeOffRequest>('/api/timeoff/requests', body),
-    onSuccess: (request) => {
-      invalidate()
-      setCreating(false)
-      toast.push({
-        tone: request.state === 'NEEDS_ATTENTION' ? 'info' : 'success',
-        title: request.state === 'NEEDS_ATTENTION' ? 'Request needs attention' : 'Request submitted',
-        detail: request.anomaly ?? `${request.days} day(s) from ${fmtDate(request.startDate)}`,
-      })
+  const columns: Column<TimeOffRequest>[] = [
+    {
+      key: 'employeeId',
+      header: 'Employee',
+      sortable: true,
+      render: (r) => (
+        <Link to={`/employees/${r.employeeId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-accent hover:underline">
+          {r.employeeName}
+        </Link>
+      ),
     },
-    onError: (error) => toast.push({ tone: 'error', title: 'Could not submit request', detail: error instanceof ApiError ? error.detail : '' }),
-  })
+    { key: 'type', header: 'Type', render: (r) => r.typeName },
+    { key: 'startDate', header: 'From', sortable: true, render: (r) => fmtDate(r.startDate) },
+    { key: 'endDate', header: 'To', sortable: true, render: (r) => fmtDate(r.endDate) },
+    { key: 'days', header: 'Days', align: 'right', sortable: true, render: (r) => r.days },
+    {
+      key: 'state',
+      header: 'Status',
+      sortable: true,
+      render: (r) => (
+        <span className="flex items-center gap-1.5">
+          <StatusBadge status={r.state} />
+          {r.anomaly ? (
+            <Tooltip content={r.anomaly}>
+              <span className="cursor-help text-xs2 text-warn">why?</span>
+            </Tooltip>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      width: '170px',
+      render: (r) => {
+        const pending = r.state === 'PENDING' || r.state === 'NEEDS_ATTENTION'
+        const isMine = r.employeeId === myEmployeeId
+        return (
+          <span className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            {canApprove && pending ? (
+              isMine ? (
+                <Tooltip content="Nobody decides on their own request, including administrators.">
+                  <span><Button size="sm" disabled>Approve</Button></span>
+                </Tooltip>
+              ) : (
+                <>
+                  <Button size="sm" variant="primary" onClick={() => decide.mutate({ id: r.id, action: 'approve' })}>
+                    Approve
+                  </Button>
+                  <Button size="sm" onClick={() => decide.mutate({ id: r.id, action: 'refuse' })}>Refuse</Button>
+                </>
+              )
+            ) : null}
+            {isMine && ['PENDING', 'NEEDS_ATTENTION', 'APPROVED'].includes(r.state) ? (
+              <Button size="sm" onClick={() => setCancelling(r)}>Cancel</Button>
+            ) : null}
+          </span>
+        )
+      },
+    },
+  ]
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Select className="w-48" value={state} onChange={setState} clearable onClear={() => setState(null)} placeholder="All statuses" options={REQUEST_STATES} />
-        <Select className="w-48" value={typeId} onChange={setTypeId} clearable onClear={() => setTypeId(null)} placeholder="All types"
-          options={(types.data ?? []).map((t) => ({ value: t.id, label: t.name, swatch: t.color, description: t.isPaid ? 'Paid' : 'Unpaid' }))} />
-        {seesAll ? (
-          <Select className="w-48" value={departmentId} onChange={setDepartmentId} clearable onClear={() => setDepartmentId(null)} placeholder="All departments"
-            options={(departments.data ?? []).map((d) => ({ value: d.id, label: d.name }))} />
-        ) : null}
-        <Button className="ml-auto" variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>New request</Button>
-      </div>
-
       <Card>
         <DataTable
-          rows={query.data?.content ?? []}
-          loading={query.isLoading}
-          onRowClick={setOpen}
-          columns={[
-            ...(seesAll ? [{ key: 'employee', header: 'Employee', render: (r: TimeOffRequest) => r.employeeName, sortValue: (r: TimeOffRequest) => r.employeeName }] : []),
-            {
-              key: 'type', header: 'Type',
-              render: (r) => (
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: types.data?.find((t) => t.id === r.typeId)?.color ?? '#0A84FF' }} />
-                  {r.typeName}
-                </span>
-              ),
-            },
-            { key: 'start', header: 'Start', render: (r) => fmtDate(r.startDate), sortValue: (r) => r.startDate },
-            { key: 'end', header: 'End', render: (r) => fmtDate(r.endDate) },
-            { key: 'days', header: 'Duration', align: 'right', render: (r) => `${r.days} day${r.days === 1 ? '' : 's'}` },
-            {
-              key: 'state', header: 'Status',
-              render: (r) => (
-                <div className="flex items-center gap-1.5">
-                  <StatusBadge status={r.state} />
-                  {r.anomaly ? <Tooltip content={r.anomaly}><span><Chip tone="warn">why?</Chip></span></Tooltip> : null}
-                </div>
-              ),
-            },
-            {
-              key: 'actions', header: '', align: 'right',
-              render: (r) =>
-                can('timeoff_request.approve') && (r.state === 'PENDING' || r.state === 'NEEDS_ATTENTION') ? (
-                  <Tooltip content={r.employeeId === employeeId ? 'You cannot approve your own request' : null}>
-                    <span className="flex justify-end gap-1.5">
-                      <Button size="sm" disabled={r.employeeId === employeeId} onClick={(e) => { e.stopPropagation(); decide.mutate({ id: r.id, action: 'approve' }) }}>Approve</Button>
-                      <Button size="sm" disabled={r.employeeId === employeeId} onClick={(e) => { e.stopPropagation(); decide.mutate({ id: r.id, action: 'refuse' }) }}>Refuse</Button>
-                    </span>
-                  </Tooltip>
-                ) : null,
-            },
-          ]}
+          rows={list.data?.content ?? []}
+          columns={columns}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          onRowClick={(r) => setOpen(r)}
+          toolbar={{
+            filters: (
+              <>
+                <Select value={state} onChange={setState} options={REQUEST_STATE_OPTIONS} className="w-48" />
+                <Select
+                  value={typeId}
+                  onChange={setTypeId}
+                  clearable
+                  onClear={() => setTypeId(null)}
+                  placeholder="All types"
+                  className="w-44"
+                  options={(types.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
+                />
+                {can('employee.read.all') ? (
+                  <Select
+                    value={employeeId}
+                    onChange={setEmployeeId}
+                    clearable
+                    onClear={() => setEmployeeId(null)}
+                    placeholder="All employees"
+                    className="w-52"
+                    options={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName }))}
+                  />
+                ) : null}
+                <StatusLegend statuses={['PENDING', 'NEEDS_ATTENTION', 'APPROVED', 'REFUSED', 'CANCELLED']} />
+              </>
+            ),
+            actions: canCreate ? (
+              <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+                New request
+              </Button>
+            ) : undefined,
+          }}
+          empty={{
+            icon: <CalendarOff className="h-6 w-6" />,
+            title: 'No leave requests',
+            description: 'Requests appear here once someone asks for time off.',
+            action: canCreate ? (
+              <Button variant="primary" onClick={() => setCreating(true)}>Request time off</Button>
+            ) : undefined,
+          }}
         />
       </Card>
 
-      {open ? (
-        <Sheet open onOpenChange={(next) => !next && setOpen(null)} title={`Time off request`} description={`${open.employeeName} · ${open.typeName}`}
-          footer={<Button onClick={() => setOpen(null)}>Close</Button>}>
-          {open.anomaly ? <Callout tone="warn" title="Needs attention">{open.anomaly}</Callout> : null}
-          <dl className="mt-4 divide-y divide-separator rounded-card border border-separator">
-            {[
-              ['Employee', open.employeeName], ['Time off type', open.typeName],
-              ['Start date', fmtDate(open.startDate)], ['End date', fmtDate(open.endDate)],
-              ['Duration', `${open.days} day(s)`], ['Reason', open.reason ?? '—'],
-              ['Approver', open.decidedBy ?? 'Not decided yet'],
-            ].map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-4 px-4 py-2.5 text-sm2">
-                <dt className="text-label2">{label}</dt><dd className="text-right font-medium">{value}</dd>
-              </div>
-            ))}
-            <div className="flex justify-between gap-4 px-4 py-2.5 text-sm2"><dt className="text-label2">Status</dt><dd><StatusBadge status={open.state} /></dd></div>
-          </dl>
-        </Sheet>
-      ) : null}
+      <NewRequestSheet open={creating} onOpenChange={setCreating} />
 
-      {creating ? (
-        <NewRequestSheet
-          onClose={() => setCreating(false)}
-          saving={create.isPending}
-          canPickEmployee={can('timeoff_request.create.all')}
-          employees={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: e.employeeNo }))}
-          types={types.data ?? []}
-          onSubmit={(body) => create.mutate(body)}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function NewRequestSheet({ onClose, onSubmit, saving, types, employees, canPickEmployee }: {
-  onClose: () => void
-  onSubmit: (body: Record<string, unknown>) => void
-  saving: boolean
-  types: TimeOffType[]
-  employees: { value: number; label: string; description?: string }[]
-  canPickEmployee: boolean
-}) {
-  const [form, setForm] = React.useState({ employeeId: null as number | null, typeId: null as number | null, startDate: '2026-09-21', endDate: '2026-09-23', reason: '' })
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
-
-  const simulate = useQuery({
-    queryKey: ['timeoff', 'simulate', form],
-    enabled: Boolean(form.typeId && form.startDate && form.endDate),
-    queryFn: () => api.post<{ days: number; available: number; projectedAfter: number; anomaly: string | null }>('/api/timeoff/requests/simulate', {
-      typeId: form.typeId, startDate: form.startDate, endDate: form.endDate, employeeId: form.employeeId ?? undefined,
-    }),
-  })
-
-  return (
-    <Sheet
-      open
-      onOpenChange={(next) => !next && onClose()}
-      title="New time off request"
-      description="Days are calculated from the working schedule, excluding public holidays."
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={saving} disabled={!form.typeId} onClick={() => onSubmit({ ...form, employeeId: form.employeeId ?? undefined })}>Submit request</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {canPickEmployee ? (
-          <Field label="Employee" hint="Leave empty to request for yourself.">
-            <Select value={form.employeeId} onChange={(v) => set('employeeId', v)} options={employees} placeholder="Myself" clearable onClear={() => set('employeeId', null)} />
-          </Field>
-        ) : null}
-        <Field label="Time off type" required>
-          <Select
-            value={form.typeId}
-            onChange={(v) => set('typeId', v)}
-            placeholder="Select type"
-            options={types.map((t) => ({
-              value: t.id, label: t.name, swatch: t.color,
-              description: `${t.isPaid ? 'Paid' : 'Unpaid'}${t.requiresAllocation ? ' · requires allocation' : ''}`,
-            }))}
+      <Sheet
+        open={open !== null}
+        onOpenChange={(isOpen) => !isOpen && setOpen(null)}
+        title="Leave request"
+        description="Days are counted from the working schedule, excluding public holidays."
+        footer={<Button onClick={() => setOpen(null)}>Close</Button>}
+      >
+        {open ? (
+          <DetailList
+            items={[
+              { label: 'Employee', value: open.employeeName },
+              { label: 'Type', value: open.typeName },
+              { label: 'From', value: fmtDate(open.startDate) },
+              { label: 'To', value: fmtDate(open.endDate) },
+              { label: 'Working days', value: open.days, tnum: true },
+              { label: 'Status', value: <StatusBadge status={open.state} /> },
+              { label: 'Needs attention because', value: open.anomaly, hidden: !open.anomaly },
+              { label: 'Reason given', value: open.reason || '—' },
+              { label: 'Decision note', value: open.decisionNote, hidden: !open.decisionNote },
+            ]}
           />
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Start date" required><DateField value={form.startDate} onChange={(v) => set('startDate', v)} /></Field>
-          <Field label="End date" required><DateField value={form.endDate} min={form.startDate} onChange={(v) => set('endDate', v)} /></Field>
-        </div>
-
-        {simulate.data ? (
-          <Callout tone={simulate.data.anomaly ? 'warn' : 'accent'} title={simulate.data.anomaly ? 'Balance is short' : 'Balance check'}>
-            {simulate.data.days} working day{simulate.data.days === 1 ? '' : 's'} · available {simulate.data.available} · projected {simulate.data.projectedAfter}
-            {simulate.data.anomaly ? <p className="mt-1">{simulate.data.anomaly}</p> : null}
-          </Callout>
         ) : null}
+      </Sheet>
 
-        <Field label="Reason"><TextArea value={form.reason} onChange={(e) => set('reason', e.target.value)} placeholder="Family vacation" /></Field>
-      </div>
-    </Sheet>
+      <ConfirmDialog
+        open={cancelling !== null}
+        onOpenChange={(isOpen) => !isOpen && setCancelling(null)}
+        title="Cancel this request?"
+        sentence={
+          cancelling?.state === 'APPROVED'
+            ? `The ${cancelling.days} approved days return to your balance.`
+            : 'The request is withdrawn. You can submit a new one at any time.'
+        }
+        confirmLabel="Cancel request"
+        tone="danger"
+        loading={decide.isPending}
+        onConfirm={() =>
+          cancelling &&
+          decide.mutate({ id: cancelling.id, action: 'cancel' }, { onSuccess: () => setCancelling(null) })
+        }
+      />
+    </>
   )
 }
 
 function AllocationsTab() {
-  const { can, employeeId } = useAuth()
-  const queryClient = useQueryClient()
-  const toast = useToast()
+  const { can, employeeId: myEmployeeId } = useAuth()
+  const canApprove = can('timeoff_allocation.approve')
+  const canCreate = can('timeoff_allocation.create.all')
+  const employees = useEmployeeOptions(can('employee.read.all'))
   const types = useTimeOffTypes()
-  const employees = useEmployeeOptions(can('timeoff_allocation.read.all'))
+
+  const [state, setState] = useSearchParamState<string>('allocState', '')
+  const table = useTableState({ prefix: 'al.', defaultSort: 'validFrom', defaultDir: 'desc' })
+  const list = useTimeOffAllocations({ ...table.params, state: state || undefined })
+
   const [creating, setCreating] = React.useState(false)
+  const decide = useDecideAllocation()
+  const create = useCreateAllocation(() => setCreating(false))
 
-  const query = useQuery({ queryKey: ['timeoff', 'allocations'], queryFn: () => api.page<TimeOffAllocation>('/api/timeoff/allocations', { size: 200 }) })
-
-  const decide = useMutation({
-    mutationFn: ({ id, action }: { id: number; action: 'approve' | 'refuse' }) => api.post(`/api/timeoff/allocations/${id}/${action}`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['timeoff'] }); toast.push({ tone: 'success', title: 'Allocation updated', detail: 'Requests that were short of balance have been re-evaluated.' }) },
-    onError: (error) => toast.push({ tone: 'error', title: 'Could not update allocation', detail: error instanceof ApiError ? error.detail : '' }),
-  })
-
-  const create = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post('/api/timeoff/allocations', body),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['timeoff'] }); setCreating(false); toast.push({ tone: 'success', title: 'Allocation created', detail: 'It stays in draft until approved.' }) },
-  })
+  const columns: Column<TimeOffAllocation>[] = [
+    { key: 'employeeId', header: 'Employee', sortable: true, render: (r) => r.employeeName },
+    { key: 'type', header: 'Type', render: (r) => r.typeName },
+    { key: 'days', header: 'Days', align: 'right', sortable: true, render: (r) => r.days },
+    {
+      key: 'taken',
+      header: 'Used',
+      align: 'right',
+      tooltip: 'Approved leave of this type falling inside the allocation’s validity.',
+      render: (r) => r.taken,
+    },
+    { key: 'remaining', header: 'Left', align: 'right', render: (r) => r.remaining },
+    { key: 'validFrom', header: 'Valid from', sortable: true, render: (r) => fmtDate(r.validFrom) },
+    { key: 'validTo', header: 'Valid to', sortable: true, render: (r) => fmtDate(r.validTo) },
+    { key: 'state', header: 'Status', sortable: true, render: (r) => <StatusBadge status={r.state} /> },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      width: '170px',
+      hidden: !canApprove,
+      render: (r) =>
+        r.state !== 'DRAFT' ? null : r.employeeId === myEmployeeId ? (
+          <Tooltip content="Nobody approves their own allocation.">
+            <span><Button size="sm" disabled>Approve</Button></span>
+          </Tooltip>
+        ) : (
+          <span className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" variant="primary" onClick={() => decide.mutate({ id: r.id, action: 'approve' })}>
+              Approve
+            </Button>
+            <Button size="sm" onClick={() => decide.mutate({ id: r.id, action: 'refuse' })}>Refuse</Button>
+          </span>
+        ),
+    },
+  ]
 
   return (
     <>
-      {can('timeoff_allocation.create.all') ? (
-        <div className="mb-4 flex justify-end">
-          <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>New allocation</Button>
-        </div>
-      ) : null}
       <Card>
-        <CardHeader title="Allocations" subtitle="Approved allocations are what create available leave balance." />
         <DataTable
-          rows={query.data?.content ?? []}
-          loading={query.isLoading}
-          columns={[
-            { key: 'employee', header: 'Employee', render: (r) => r.employeeName, sortValue: (r) => r.employeeName },
-            { key: 'type', header: 'Type', render: (r) => r.typeName },
-            { key: 'days', header: 'Allocated', align: 'right', render: (r) => `${r.days} days` },
-            { key: 'taken', header: 'Taken', align: 'right', render: (r) => <span className="tnum">{r.taken ?? 0}</span> },
-            {
-              key: 'remaining', header: 'Remaining', align: 'right',
-              render: (r) => <span className={`tnum font-medium ${(r.remaining ?? 0) <= 0 ? 'text-warn' : ''}`}>{r.remaining ?? 0}</span>,
-            },
-            { key: 'valid', header: 'Validity', render: (r) => `${fmtDate(r.validFrom)} → ${r.validTo ? fmtDate(r.validTo) : '—'}` },
-            { key: 'state', header: 'Status', render: (r) => <StatusBadge status={r.state} /> },
-            {
-              key: 'actions', header: '', align: 'right',
-              render: (r) =>
-                can('timeoff_allocation.approve') && r.state === 'DRAFT' ? (
-                  <Tooltip content={r.employeeId === employeeId ? 'You cannot approve your own allocation' : null}>
-                    <span className="flex justify-end gap-1.5">
-                      <Button size="sm" disabled={r.employeeId === employeeId} onClick={() => decide.mutate({ id: r.id, action: 'approve' })}>Approve</Button>
-                      <Button size="sm" disabled={r.employeeId === employeeId} onClick={() => decide.mutate({ id: r.id, action: 'refuse' })}>Refuse</Button>
-                    </span>
-                  </Tooltip>
-                ) : null,
-            },
-          ]}
+          rows={list.data?.content ?? []}
+          columns={columns}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          toolbar={{
+            filters: <Select value={state} onChange={setState} options={ALLOCATION_STATE_OPTIONS} className="w-44" />,
+            actions: canCreate ? (
+              <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+                New allocation
+              </Button>
+            ) : undefined,
+          }}
+          empty={{
+            title: 'No allocations',
+            description: 'An approved allocation is what creates leave balance. Without one, nobody has days to take.',
+            action: canCreate ? (
+              <Button variant="primary" onClick={() => setCreating(true)}>Create an allocation</Button>
+            ) : undefined,
+          }}
         />
       </Card>
 
-      {creating ? (
-        <AllocationSheet
-          onClose={() => setCreating(false)}
-          saving={create.isPending}
-          employees={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: e.employeeNo }))}
-          types={(types.data ?? []).map((t) => ({ value: t.id, label: t.name, swatch: t.color }))}
-          onSubmit={(body) => create.mutate(body)}
-        />
-      ) : null}
+      <AllocationSheet
+        open={creating}
+        onOpenChange={setCreating}
+        saving={create.isPending}
+        employees={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: e.employeeNo }))}
+        types={(types.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
+        onSubmit={(body) => create.mutate(body)}
+      />
     </>
   )
 }
 
-function AllocationSheet({ onClose, onSubmit, saving, employees, types }: {
-  onClose: () => void
-  onSubmit: (body: Record<string, unknown>) => void
+function AllocationSheet({ open, onOpenChange, saving, employees, types, onSubmit }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   saving: boolean
   employees: { value: number; label: string; description?: string }[]
-  types: { value: number; label: string; swatch?: string }[]
+  types: { value: number; label: string }[]
+  onSubmit: (body: Record<string, unknown>) => void
 }) {
-  const [form, setForm] = React.useState({ employeeId: null as number | null, typeId: null as number | null, days: 20, validFrom: '2026-01-01', validTo: '2026-12-31', note: '' })
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
+  const year = new Date().getFullYear()
+  const bounds = yearBounds(year)
+  const [form, setForm] = React.useState({
+    employeeId: null as number | null,
+    typeId: null as number | null,
+    days: 0,
+    validFrom: bounds.start,
+    validTo: bounds.end,
+    note: '',
+  })
+  React.useEffect(() => {
+    if (open) setForm({ employeeId: null, typeId: null, days: 0, validFrom: bounds.start, validTo: bounds.end, note: '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((current) => ({ ...current, [key]: value }))
+  const valid = form.employeeId && form.typeId && form.days > 0
+
   return (
-    <Sheet open onOpenChange={(next) => !next && onClose()} title="New allocation" description="Allocations start in draft and grant balance once approved."
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} disabled={!form.employeeId || !form.typeId} onClick={() => onSubmit(form)}>Create allocation</Button></>}>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New leave allocation"
+      description="Created as a draft. Approving it is what turns these days into balance the person can take."
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" loading={saving} disabled={!valid} onClick={() => onSubmit(form)}>
+            Create allocation
+          </Button>
+        </>
+      }
+    >
       <div className="space-y-4">
-        <Field label="Employee" required><Select value={form.employeeId} onChange={(v) => set('employeeId', v)} options={employees} placeholder="Select employee" /></Field>
-        <Field label="Time off type" required><Select value={form.typeId} onChange={(v) => set('typeId', v)} options={types} placeholder="Select type" /></Field>
-        <Field label="Days" required>
-          <input type="number" min={0} value={form.days} onChange={(e) => set('days', Number(e.target.value))}
-            className="tnum h-9 w-full rounded-control border border-separator bg-surface px-3 outline-none focus:border-accent" />
+        <Field label="Employee" required>
+          <Select value={form.employeeId} onChange={(v) => set('employeeId', v)} options={employees} placeholder="Select employee" />
+        </Field>
+        <Field label="Leave type" required>
+          <Select value={form.typeId} onChange={(v) => set('typeId', v)} options={types} placeholder="Select type" />
+        </Field>
+        <Field label="Days" required htmlFor="alloc-days">
+          <NumberInput id="alloc-days" value={form.days} min={0} step={0.5} suffix="days" onChange={(v) => set('days', v)} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Valid from"><DateField value={form.validFrom} onChange={(v) => set('validFrom', v)} /></Field>
-          <Field label="Valid to"><DateField value={form.validTo} min={form.validFrom} onChange={(v) => set('validTo', v)} /></Field>
+          <Field label="Valid from" hint="Leave taken outside these dates does not count against this allocation.">
+            <DateField value={form.validFrom} onChange={(v) => set('validFrom', v)} />
+          </Field>
+          <Field label="Valid to">
+            <DateField value={form.validTo} min={form.validFrom} onChange={(v) => set('validTo', v)} />
+          </Field>
         </div>
-        <Field label="Note"><TextArea value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="Annual leave balance granted at start of policy year." /></Field>
+        <Field label="Note">
+          <TextInput value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="Annual entitlement for the year" />
+        </Field>
       </div>
     </Sheet>
   )
@@ -360,66 +420,285 @@ function AllocationSheet({ onClose, onSubmit, saving, employees, types }: {
 
 function TypesTab() {
   const { can } = useAuth()
-  const queryClient = useQueryClient()
-  const toast = useToast()
+  const canManage = can('timeoff_type.manage')
   const types = useTimeOffTypes()
+  // Held entirely in memory, so the table filters, sorts and pages the rows locally.
+  const table = useTableState({ prefix: 'ty.', url: false, defaultSort: 'name' })
+  const save = useSaveTimeOffType()
 
-  const update = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: Partial<TimeOffType> }) => api.put(`/api/timeoff/types/${id}`, patch),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['timeoff', 'types'] }); toast.push({ tone: 'success', title: 'Policy updated' }) },
-  })
+  const [editing, setEditing] = React.useState<TimeOffType | null | 'new'>(null)
+  const sheetSave = useSaveTimeOffType(() => setEditing(null))
+
+  const columns: Column<TimeOffType>[] = [
+    { key: 'name', header: 'Type', sortValue: (r) => r.name, render: (r) => <span className="font-medium">{r.name}</span> },
+    { key: 'code', header: 'Code', sortValue: (r) => r.code, render: (r) => <span className="tnum">{r.code}</span> },
+    {
+      key: 'isPaid',
+      header: 'Paid',
+      tooltip: 'Paid leave counts as a worked day. Unpaid leave reduces that month’s pay.',
+      render: (r) =>
+        canManage ? (
+          <Toggle
+            checked={r.isPaid}
+            onChange={(v) => save.mutate({ id: r.id, body: { name: r.name, code: r.code, isPaid: v } })}
+            label={`${r.name} is paid`}
+          />
+        ) : (
+          <ActiveBadge active={r.isPaid} labels={['Paid', 'Unpaid']} />
+        ),
+    },
+    {
+      key: 'requiresAllocation',
+      header: 'Needs allocation',
+      tooltip: 'When on, someone must be allocated days before they can request this type.',
+      render: (r) =>
+        canManage ? (
+          <Toggle
+            checked={r.requiresAllocation}
+            onChange={(v) => save.mutate({ id: r.id, body: { name: r.name, code: r.code, requiresAllocation: v } })}
+            label={`${r.name} requires an allocation`}
+          />
+        ) : (
+          <ActiveBadge active={r.requiresAllocation} labels={['Yes', 'No']} />
+        ),
+    },
+    { key: 'active', header: 'Status', sortValue: (r) => String(r.active), render: (r) => <ActiveBadge active={r.active} /> },
+  ]
 
   return (
-    <Card>
-      <CardHeader title="Time off types" subtitle="This list defines policy rules, not employee transactions." />
-      <DataTable
-        rows={types.data ?? []}
-        loading={types.isLoading}
-        columns={[
-          {
-            key: 'name', header: 'Type',
-            render: (r) => <span className="flex items-center gap-2 font-medium"><span className="h-2.5 w-2.5 rounded-full" style={{ background: r.color }} />{r.name}</span>,
-          },
-          { key: 'code', header: 'Code', render: (r) => <span className="tnum text-label2">{r.code}</span> },
-          { key: 'unit', header: 'Unit', render: (r) => r.unit.toLowerCase() },
-          {
-            key: 'paid', header: 'Paid',
-            render: (r) => <Toggle checked={r.isPaid} disabled={!can('timeoff_type.manage')} onChange={(v) => update.mutate({ id: r.id, patch: { isPaid: v } })} label={`${r.name} paid`} />,
-          },
-          {
-            key: 'allocation', header: 'Requires allocation',
-            render: (r) => <Toggle checked={r.requiresAllocation} disabled={!can('timeoff_type.manage')} onChange={(v) => update.mutate({ id: r.id, patch: { requiresAllocation: v } })} label={`${r.name} allocation`} />,
-          },
-          { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.active ? 'ACTIVE' : 'CANCELLED'} /> },
-        ]}
+    <>
+      <Card>
+        <DataTable
+          rows={types.data ?? []}
+          columns={columns}
+          table={table}
+          searchKeys={[(r) => r.name, (r) => r.code]}
+          loading={types.isLoading}
+          error={types.error}
+          onRetry={() => types.refetch()}
+          onRowClick={canManage ? (r) => setEditing(r) : undefined}
+          toolbar={{
+            search: 'Search types',
+            actions: canManage ? (
+              <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>
+                New type
+              </Button>
+            ) : undefined,
+          }}
+          empty={{
+            title: 'No leave types',
+            description: 'Types are the policy: what leave exists, whether it is paid, and whether it needs an allocation.',
+            action: canManage ? <Button variant="primary" onClick={() => setEditing('new')}>Add a type</Button> : undefined,
+          }}
+        />
+      </Card>
+
+      <TypeSheet
+        open={editing !== null}
+        type={editing === 'new' ? null : editing}
+        saving={sheetSave.isPending}
+        onOpenChange={(open) => !open && setEditing(null)}
+        onSubmit={(body) => sheetSave.mutate({ id: editing === 'new' || !editing ? null : editing.id, body })}
       />
-    </Card>
+    </>
+  )
+}
+
+function TypeSheet({ open, type, saving, onOpenChange, onSubmit }: {
+  open: boolean
+  type: TimeOffType | null
+  saving: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (body: Record<string, unknown>) => void
+}) {
+  const [form, setForm] = React.useState({ name: '', code: '', isPaid: true, requiresAllocation: true, active: true })
+  React.useEffect(() => {
+    if (!open) return
+    setForm(
+      type
+        ? { name: type.name, code: type.code, isPaid: type.isPaid, requiresAllocation: type.requiresAllocation, active: type.active }
+        : { name: '', code: '', isPaid: true, requiresAllocation: true, active: true },
+    )
+  }, [open, type])
+
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((current) => ({ ...current, [key]: value }))
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={type ? `Edit ${type.name}` : 'New leave type'}
+      description="Policy, not a transaction. Changing a type affects how future requests behave."
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            variant="primary"
+            loading={saving}
+            disabled={!form.name.trim() || !form.code.trim()}
+            onClick={() => onSubmit({ ...form, name: form.name.trim(), code: form.code.trim().toUpperCase() })}
+          >
+            {type ? 'Save' : 'Create type'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Name" required>
+          <TextInput value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Annual Leave" />
+        </Field>
+        <Field label="Code" required hint="A short identifier used in reports and payroll inputs.">
+          <TextInput value={form.code} onChange={(e) => set('code', e.target.value.toUpperCase())} placeholder="ANNUAL" />
+        </Field>
+        <div className="flex items-center justify-between rounded-card border border-separator px-4 py-3">
+          <div>
+            <p className="text-sm2 font-medium">Paid</p>
+            <p className="text-xs2 text-label2">Paid leave counts as a worked day. Unpaid leave reduces that month’s pay.</p>
+          </div>
+          <Toggle checked={form.isPaid} onChange={(v) => set('isPaid', v)} label="Paid" />
+        </div>
+        <div className="flex items-center justify-between rounded-card border border-separator px-4 py-3">
+          <div>
+            <p className="text-sm2 font-medium">Requires an allocation</p>
+            <p className="text-xs2 text-label2">Requests beyond the allocated balance are flagged for attention.</p>
+          </div>
+          <Toggle checked={form.requiresAllocation} onChange={(v) => set('requiresAllocation', v)} label="Requires allocation" />
+        </div>
+        <div className="flex items-center justify-between rounded-card border border-separator px-4 py-3">
+          <div>
+            <p className="text-sm2 font-medium">Available</p>
+            <p className="text-xs2 text-label2">Existing requests are kept; the type is no longer offered for new ones.</p>
+          </div>
+          <Toggle checked={form.active} onChange={(v) => set('active', v)} label="Available" />
+        </div>
+      </div>
+    </Sheet>
   )
 }
 
 function HolidaysTab() {
   const { can } = useAuth()
-  const queryClient = useQueryClient()
-  const query = useQuery({ queryKey: ['timeoff', 'holidays'], queryFn: () => api.get<Holiday[]>('/api/timeoff/holidays', { year: 2026 }) })
-  const remove = useMutation({
-    mutationFn: (id: number) => api.del(`/api/timeoff/holidays/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['timeoff', 'holidays'] }),
-  })
+  const canManage = can('timeoff_type.manage')
+  const [year, setYear] = useSearchParamState<number>('year', new Date().getFullYear(), (raw) => Number(raw))
+  const holidays = useHolidays(year)
+  // Held entirely in memory, so the table filters, sorts and pages the rows locally.
+  const table = useTableState({ prefix: 'hol.', url: false, defaultSort: 'date' })
+
+  const [adding, setAdding] = React.useState(false)
+  const [deleting, setDeleting] = React.useState<Holiday | null>(null)
+  const create = useCreateHoliday(() => setAdding(false))
+  const remove = useDeleteHoliday(() => setDeleting(null))
+  const [form, setForm] = React.useState({ date: todayIso(), name: '' })
+
+  React.useEffect(() => { if (adding) setForm({ date: todayIso(), name: '' }) }, [adding])
+
+  const columns: Column<Holiday>[] = [
+    { key: 'date', header: 'Date', sortValue: (r) => r.date, render: (r) => fmtDate(r.date) },
+    { key: 'name', header: 'Holiday', sortValue: (r) => r.name, render: (r) => <span className="font-medium">{r.name}</span> },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      width: '56px',
+      hidden: !canManage,
+      render: (r) => (
+        <span onClick={(e) => e.stopPropagation()}>
+          <IconButton label={`Remove ${r.name}`} onClick={() => setDeleting(r)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </IconButton>
+        </span>
+      ),
+    },
+  ]
+
   return (
-    <Card>
-      <CardHeader title="Public holidays 2026" subtitle="Holidays are excluded when leave duration is calculated." />
-      <DataTable
-        rows={query.data ?? []}
-        loading={query.isLoading}
-        columns={[
-          { key: 'name', header: 'Holiday', render: (r) => r.name },
-          { key: 'date', header: 'Date', render: (r) => fmtDate(r.date), sortValue: (r) => r.date },
-          {
-            key: 'actions', header: '', align: 'right',
-            render: (r) => (can('timeoff_type.manage') ? <Button size="sm" onClick={() => remove.mutate(r.id)}>Remove</Button> : null),
-          },
-        ]}
+    <>
+      <Card>
+        <DataTable
+          rows={holidays.data ?? []}
+          columns={columns}
+          table={table}
+          searchKeys={[(r) => r.name]}
+          loading={holidays.isLoading}
+          error={holidays.error}
+          onRetry={() => holidays.refetch()}
+          toolbar={{
+            search: 'Search holidays',
+            filters: (
+              <Select
+                value={String(year)}
+                onChange={(v) => setYear(Number(v))}
+                className="w-32"
+                options={nearbyYears().map((y) => ({ value: String(y), label: String(y) }))}
+              />
+            ),
+            actions: (
+              <div className="flex items-center gap-2">
+                <HelpPopover title="What holidays affect" size="sm">
+                  <HelpItems
+                    items={[
+                      { term: 'Leave', text: 'A holiday inside a leave request is not counted as a leave day.' },
+                      { term: 'Attendance', text: 'A holiday is never treated as an absence.' },
+                      { term: 'Payroll', text: 'Holidays are excluded from the scheduled days a period expects.' },
+                    ]}
+                  />
+                </HelpPopover>
+                {canManage ? (
+                  <Button variant="primary" icon={<CalendarPlus className="h-4 w-4" />} onClick={() => setAdding(true)}>
+                    Add holiday
+                  </Button>
+                ) : null}
+              </div>
+            ),
+          }}
+          empty={{
+            title: `No holidays recorded for ${year}`,
+            description: 'Without them, holidays count as scheduled working days for both leave and payroll.',
+            action: canManage ? <Button variant="primary" onClick={() => setAdding(true)}>Add the first holiday</Button> : undefined,
+          }}
+        />
+      </Card>
+
+      <Sheet
+        open={adding}
+        onOpenChange={setAdding}
+        title="Add a public holiday"
+        description="Excluded from scheduled days, so it affects both leave duration and payroll."
+        footer={
+          <>
+            <Button onClick={() => setAdding(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              loading={create.isPending}
+              disabled={!form.name.trim() || !form.date}
+              onClick={() => create.mutate({ date: form.date, name: form.name.trim() })}
+            >
+              Add holiday
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Date" required>
+            <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          </Field>
+          <Field label="Name" required>
+            <TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Republic Day" />
+          </Field>
+        </div>
+      </Sheet>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Remove ${deleting?.name}?`}
+        sentence="That date becomes an ordinary working day again for leave counting and for payroll."
+        confirmLabel="Remove holiday"
+        tone="danger"
+        loading={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
-    </Card>
+    </>
   )
 }

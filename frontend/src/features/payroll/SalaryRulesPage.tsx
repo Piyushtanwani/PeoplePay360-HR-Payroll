@@ -1,92 +1,163 @@
-import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { FileSpreadsheet, Search } from 'lucide-react'
-import { api } from '@/api/client'
-import { Card, Chip, DataTable, EmptyState, PageHeader, Select, StatusBadge, TextInput } from '@/components/ui'
-import { money } from '@/lib/format'
-import type { Column } from '@/components/ui/DataTable'
+import { ListOrdered } from 'lucide-react'
+import { useAllRules, useSetAnyRuleActive, useStructureNames } from '@/api/hooks'
+import { CATEGORY_TONES, RULE_CATEGORY_OPTIONS } from '@/api/constants'
+import { useAuth } from '@/auth/AuthProvider'
+import {
+  ActiveBadge, Card, Chip, DataTable, HelpItems, HelpPopover, PageHeader, Select, Toggle, Tooltip,
+  type Column,
+} from '@/components/ui'
+import { moneyExact } from '@/lib/format'
+import { useNumberParamState, useSearchParamState } from '@/lib/hooks/useSearchParamState'
+import { useTableState } from '@/lib/hooks/useTableState'
 import type { SalaryRuleRow } from '@/api/types'
 
-const CATEGORIES = [
-  { value: 'BASIC', label: 'Basic' },
-  { value: 'ALLOWANCE', label: 'Allowance' },
-  { value: 'GROSS', label: 'Gross' },
-  { value: 'DEDUCTION', label: 'Deduction' },
-  { value: 'NET', label: 'Net' },
-]
-
-function computation(rule: SalaryRuleRow) {
-  if (rule.computeType === 'FIXED') return rule.fixedAmount === null ? 'Fixed' : `Fixed ${money(rule.fixedAmount)}`
-  if (rule.computeType === 'PERCENTAGE') return `${rule.percentage ?? 0}% of ${rule.baseRuleCode ?? '—'}`
-  return rule.formula ? `Formula: ${rule.formula}` : 'Formula'
-}
-
+/**
+ * Every rule across every structure, for answering "where is tax calculated" without opening each
+ * structure in turn. Editing happens on the structure, which is where the ordering makes sense.
+ */
 export function SalaryRulesPage() {
   const navigate = useNavigate()
-  const [q, setQ] = React.useState('')
-  const [category, setCategory] = React.useState<string | null>(null)
-  const [structureId, setStructureId] = React.useState<number | null>(null)
+  const { can } = useAuth()
+  const structures = useStructureNames()
 
-  const query = useQuery({
-    queryKey: ['salary-rules'],
-    queryFn: () => api.get<SalaryRuleRow[]>('/api/salary-structures/rules/all'),
+  const [structureId, setStructureId] = useNumberParamState('structureId')
+  const [category, setCategory] = useSearchParamState<string>('category', '')
+  const [active, setActive] = useSearchParamState<string>('active', '')
+
+  // Structure, then sequence: the order the rules actually run in.
+  const table = useTableState({ defaultSort: 'structureName', defaultDir: 'asc' })
+  const switchRule = useSetAnyRuleActive()
+  const list = useAllRules({
+    ...table.params,
+    structureId,
+    category: category || undefined,
+    active: active === '' ? undefined : active === 'true',
   })
 
-  const all = query.data ?? []
-  const structures = React.useMemo(() => {
-    const seen = new Map<number, string>()
-    all.forEach((r) => seen.set(r.structureId, r.structureName))
-    return Array.from(seen, ([value, label]) => ({ value, label }))
-  }, [all])
-
-  const rows = all.filter((r) => {
-    if (category && r.category !== category) return false
-    if (structureId !== null && r.structureId !== structureId) return false
-    if (!q) return true
-    const needle = q.toLowerCase()
-    return `${r.name} ${r.code} ${r.structureName}`.toLowerCase().includes(needle)
-  })
+  const describe = (rule: SalaryRuleRow) => {
+    if (rule.computeType === 'FIXED') return moneyExact(rule.fixedAmount)
+    if (rule.computeType === 'PERCENTAGE') return `${rule.percentage}% of ${rule.baseRuleCode}`
+    return rule.formula ?? '—'
+  }
 
   const columns: Column<SalaryRuleRow>[] = [
-    { key: 'name', header: 'Rule name', render: (r) => <span className="font-medium">{r.name}</span>, sortValue: (r) => r.name },
-    { key: 'code', header: 'Code', render: (r) => <span className="font-mono text-sm2">{r.code}</span>, sortValue: (r) => r.code },
-    { key: 'category', header: 'Category', render: (r) => <Chip>{r.category.toLowerCase()}</Chip>, sortValue: (r) => r.category },
-    { key: 'structure', header: 'Structure', render: (r) => r.structureName, sortValue: (r) => r.structureName },
-    { key: 'sequence', header: 'Sequence', align: 'right', render: (r) => <span className="tnum">{r.sequence}</span>, sortValue: (r) => r.sequence },
-    { key: 'computation', header: 'Computation', render: (r) => <span className="text-label2">{computation(r)}</span> },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.active ? 'ACTIVE' : 'CANCELLED'} /> },
+    { key: 'structureName', header: 'Structure', sortable: true, render: (r) => r.structureName },
+    { key: 'sequence', header: 'Seq', align: 'right', sortable: true, width: '56px', render: (r) => r.sequence },
+    {
+      key: 'name',
+      header: 'Rule',
+      sortable: true,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.name}</p>
+          <p className="tnum truncate text-xs2 text-label2">{r.code}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      sortable: true,
+      render: (r) => (
+        <Tooltip content={RULE_CATEGORY_OPTIONS.find((c) => c.value === r.category)?.description}>
+          <span><Chip tone={CATEGORY_TONES[r.category]}>{r.category.toLowerCase()}</Chip></span>
+        </Tooltip>
+      ),
+    },
+    { key: 'computation', header: 'Computation', render: (r) => <span className="tnum text-sm2">{describe(r)}</span> },
+    {
+      key: 'active',
+      header: 'Status',
+      sortable: true,
+      align: 'right',
+      width: '120px',
+      tooltip: 'A rule that is off is kept but excluded from every future calculation.',
+      // Editable in place for anyone who may change structures; a read-only badge for everyone else.
+      render: (r) =>
+        can('salary_rule.update') ? (
+          <Toggle
+            checked={r.active}
+            disabled={switchRule.isPending}
+            label={`${r.name} is active`}
+            onChange={(next) => switchRule.mutate({ structureId: r.structureId, ruleId: r.id, active: next })}
+          />
+        ) : (
+          <ActiveBadge active={r.active} labels={['On', 'Off']} />
+        ),
+    },
   ]
 
   return (
     <>
       <PageHeader
         title="Salary rules"
-        description="Every rule across all structures, in the order payroll applies them. Open a rule to edit it on its structure."
+        description="Every rule in every structure, in the order it runs. Open one to edit it on its structure."
+        help={
+          <HelpPopover title="Reading this list">
+            <HelpItems
+              items={[
+                { term: 'Order', text: 'Grouped by structure, then by sequence, which is the order payroll runs them in.' },
+                { term: 'Computation', text: 'A fixed amount, a percentage of an earlier rule, or a formula.' },
+                { term: 'On and off', text: 'Switched here on the structure page, so the effect of the change is visible next to its neighbours.' },
+              ]}
+            />
+          </HelpPopover>
+        }
       />
-
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-label2" />
-          <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search rules…" className="pl-8" />
-        </div>
-        <Select value={structureId} onChange={setStructureId} clearable onClear={() => setStructureId(null)}
-          placeholder="All structures" options={structures} />
-        <Select value={category} onChange={setCategory} clearable onClear={() => setCategory(null)}
-          placeholder="All categories" options={CATEGORIES} />
-        <p className="self-center text-sm2 text-label2">
-          {query.isLoading ? 'Loading…' : `${rows.length} rule${rows.length === 1 ? '' : 's'}`}
-        </p>
-      </div>
 
       <Card>
         <DataTable
-          rows={rows}
+          rows={list.data?.content ?? []}
           columns={columns}
-          loading={query.isLoading}
-          onRowClick={(r) => navigate(`/payroll/salary-structures?structureId=${r.structureId}&ruleId=${r.id}`)}
-          empty={<EmptyState icon={<FileSpreadsheet className="h-6 w-6" />} title="No rules match"
-            description="Clear the filters, or add rules from a salary structure." />}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          onRowClick={
+            can('salary_structure.read')
+              ? (r) => navigate(`/payroll/salary-structures?structureId=${r.structureId}&ruleId=${r.id}`)
+              : undefined
+          }
+          toolbar={{
+            search: 'Search rule name, code or structure',
+            filters: (
+              <>
+                <Select
+                  value={structureId}
+                  onChange={setStructureId}
+                  clearable
+                  onClear={() => setStructureId(null)}
+                  placeholder="All structures"
+                  className="w-52"
+                  options={(structures.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
+                />
+                <Select
+                  value={category}
+                  onChange={setCategory}
+                  className="w-44"
+                  options={[{ value: '', label: 'All categories' }, ...RULE_CATEGORY_OPTIONS]}
+                />
+                <Select
+                  value={active}
+                  onChange={setActive}
+                  className="w-36"
+                  options={[
+                    { value: '', label: 'On and off' },
+                    { value: 'true', label: 'On only' },
+                    { value: 'false', label: 'Off only' },
+                  ]}
+                />
+              </>
+            ),
+          }}
+          empty={{
+            icon: <ListOrdered className="h-6 w-6" />,
+            title: 'No rules',
+            description: 'Rules are added to a salary structure, and appear here across all of them.',
+          }}
         />
       </Card>
     </>

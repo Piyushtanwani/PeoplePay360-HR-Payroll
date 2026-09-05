@@ -3,16 +3,10 @@ import ReactDOM from 'react-dom/client'
 import './design/tokens.css'
 import { AppRoot } from './app/AppRoot'
 
-async function bootstrap() {
-  if (import.meta.env.VITE_USE_MOCKS !== 'false') {
-    const { startMocks } = await import('./mocks/browser')
-    await startMocks()
-  }
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <AppRoot />
-    </React.StrictMode>,
-  )
-}
-
-void bootstrap()
+// The app always talks to the real backend. The request fixtures that used to run in the browser now
+// live under src/test and serve the component tests, where a stub cannot drift out of sight.
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <AppRoot />
+  </React.StrictMode>,
+)

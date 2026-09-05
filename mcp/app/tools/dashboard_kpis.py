@@ -10,7 +10,7 @@ from app.views import format_tool_result
 @registry.register(
     name="dashboard_kpis",
     description="Retrieves high-level executive payroll KPIs and organizational analytics for a given month (e.g. total net paid, headcount, average salary, time-off days, and attendance health percentage).",
-    required_permission="payroll.read",
+    required_permission="dashboard.read.hr",
     parameters={
         "type": "object",
         "properties": {

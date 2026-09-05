@@ -96,6 +96,9 @@ class ProviderManager:
             base_url=base_url,
             api_key=config.apiKey or "ollama",
             timeout=settings.llm_timeout_seconds,
+            # A timed-out generation is not worth repeating: the retry waits just as long and the
+            # person is already staring at a spinner. Fail once and say so.
+            max_retries=0,
         )
         kwargs: Dict[str, Any] = {
             "model": config.model or "llama3.1:8b",
@@ -148,29 +151,64 @@ class ProviderManager:
         except Exception as err:
             logger.warning("LLM provider %s call failed: %s", config.provider, err)
             if settings.enable_mock_llm:
-                logger.info("Falling back to deterministic heuristic provider.")
-                return self._mock_generate(messages, tools)
+                logger.info("Falling back to the deterministic provider after a model failure.")
+                return self._mock_generate(
+                    messages, tools, degraded=True,
+                    degraded_reason=self._explain_failure(err, config),
+                )
             raise
+
+    @staticmethod
+    def _explain_failure(err: Exception, config: ProviderConfig) -> str:
+        """
+        Says what actually went wrong, in terms an operator can act on.
+
+        The difference matters: a model that cannot call tools needs replacing, a timeout needs
+        patience or a smaller model, and a missing key needs a key. "The model did not respond"
+        covers all three and helps with none.
+        """
+        text = str(err)
+        model = config.model or "the configured model"
+        if "does not support tools" in text or ("tool" in text and "support" in text):
+            return (
+                f"The configured model, {model}, cannot call tools, so it cannot read your records. "
+                "Choose a tool-capable model in AI Settings."
+            )
+        if "timed out" in text.lower() or "timeout" in text.lower():
+            return (
+                f"{model} took too long to answer. It may be loading for the first time; "
+                "try again, or choose a smaller model in AI Settings."
+            )
+        if "401" in text or "403" in text or "api key" in text.lower():
+            return "The provider rejected the API key. Check it in AI Settings."
+        if "404" in text or "not found" in text.lower():
+            return f"The provider does not offer {model}. Choose another in AI Settings."
+        return "The language model did not respond."
 
     def _mock_generate(
         self,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        degraded: bool = False,
+        degraded_reason: str = "The language model did not respond.",
     ) -> Tuple[str, List[Dict[str, Any]]]:
-        """Heuristic fallback for offline / mock testing across all 13 tools."""
+        """
+        Chooses a tool, or writes an answer, without a model.
+
+        Two callers, and the difference matters. As the `mock` provider it is the whole assistant and
+        its replies are the product. As a fallback after the real model failed, `degraded` is set and
+        every reply says so: filler that reads like an answer is worse than an error, because nobody
+        goes looking for the fault.
+        """
         last_user_msg = ""
         for m in reversed(messages):
             if m.get("role") == "user":
                 last_user_msg = (m.get("content") or "").lower()
                 break
 
-        has_tool_results = any(m.get("role") == "tool" for m in messages)
-        if has_tool_results:
-            return (
-                "Based on the live company records retrieved from PeoplePay360, "
-                "here is the requested summary below.",
-                [],
-            )
+        tool_results = [m for m in messages if m.get("role") == "tool"]
+        if tool_results:
+            return self._summarise_without_model(tool_results, degraded, degraded_reason), []
 
         available_tool_names = {t["function"]["name"] for t in tools if "function" in t}
 
@@ -230,6 +268,9 @@ class ProviderManager:
             if "employee_search" in available_tool_names:
                 return "", [{"id": "call_es", "name": "employee_search", "arguments": {}}]
 
+        if degraded:
+            return (f"{degraded_reason} I could not work out which records to look up.", [])
+
         # Default greeting / assistance
         return (
             "I am the PeoplePay360 HR and Payroll Assistant. "
@@ -238,6 +279,43 @@ class ProviderManager:
             "How can I assist you today?",
             [],
         )
+
+    @staticmethod
+    def _summarise_without_model(
+        tool_results: List[Dict[str, Any]],
+        degraded: bool,
+        degraded_reason: str = "The language model did not respond.",
+    ) -> str:
+        """
+        Reports what the lookups found when there is no model to phrase it.
+
+        Each tool already returns a plain-English first line, such as "40 employees match". That line
+        is a real answer; the JSON rows that follow it are for the model and are dropped here. The
+        result is short and true, rather than a sentence that says nothing.
+        """
+        lines: List[str] = []
+        for result in tool_results:
+            content = (result.get("content") or "").strip()
+            if not content:
+                continue
+            # Everything up to the machine-readable rows is the human-readable part.
+            headline = content.split("\nRows:")[0].split("Rows:")[0].strip()
+            if headline:
+                lines.append(headline)
+
+        if not lines:
+            return (
+                "The lookups returned nothing I can summarise without the language model. "
+                "The records themselves are below."
+            )
+
+        body = "\n".join(f"- {line}" if len(lines) > 1 else line for line in lines)
+        if degraded:
+            return (
+                f"{degraded_reason}\n\nThis is what the lookups returned:\n\n"
+                f"{body}\n\nThe full records are below."
+            )
+        return f"{body}\n\nThe full records are below."
 
     async def test_connection(self, config: ProviderConfig) -> Tuple[bool, int, Optional[str]]:
         start_time = time.time()
@@ -257,18 +335,33 @@ class ProviderManager:
             return False, latency, str(e)
 
     async def list_models(self, config: ProviderConfig) -> List[str]:
+        """Lists the models a provider offers.
+
+        Returns an empty list when the provider cannot be reached. It must never invent model
+        names: a fabricated list looks like a working connection and sends the operator hunting
+        for a fault in the wrong place.
+        """
         if config.provider.lower() == "mock":
-            return ["mock-assistant", "llama3.1:8b", "qwen2.5:7b"]
+            return ["mock-assistant"]
         try:
             base_url = self._normalize_base_url(config.baseUrl)
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{base_url}/models", headers={"Authorization": f"Bearer {config.apiKey or 'ollama'}"})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return [m.get("id") for m in data.get("data", []) if "id" in m]
+                resp = await client.get(
+                    f"{base_url}/models",
+                    headers={"Authorization": f"Bearer {config.apiKey or 'ollama'}"},
+                )
+            if resp.status_code != 200:
+                logger.warning(
+                    "Provider %s returned HTTP %s when listing models",
+                    config.provider,
+                    resp.status_code,
+                )
+                return []
+            data = resp.json()
+            return [m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
         except Exception as err:
             logger.warning("Failed to list models for provider %s: %s", config.provider, err)
-        return ["llama3.1:8b", "qwen2.5:7b", "mistral:7b"]
+            return []
 
 
 provider_manager = ProviderManager()

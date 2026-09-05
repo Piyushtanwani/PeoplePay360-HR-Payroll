@@ -1,7 +1,6 @@
 package com.peoplepay360.service;
 
 import com.peoplepay360.common.ApiException;
-import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
 import com.peoplepay360.dto.ContractDtos.*;
@@ -13,7 +12,13 @@ import com.peoplepay360.model.WorkingSchedule;
 import com.peoplepay360.repository.WorkingScheduleRepository;
 import com.peoplepay360.security.CurrentUser;
 import com.peoplepay360.security.OwnershipGuard;
+import com.peoplepay360.common.Paging;
+import com.peoplepay360.common.Specs;
+import com.peoplepay360.model.ContractTemplate;
 import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -21,12 +26,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import com.peoplepay360.model.Contract;
 import com.peoplepay360.repository.ContractRepository;
 
 @Service
 public class ContractService {
+    private static final Map<String, String> SORTS = Map.of(
+            "reference", "reference", "startDate", "startDate", "endDate", "endDate",
+            "wage", "wage", "state", "state", "jobTitle", "jobTitle", "employeeId", "employeeId");
+    private static final Sort DEFAULT_SORT =
+            Sort.by(Sort.Order.desc("startDate"), Sort.Order.desc("id"));
+
     private final ContractRepository contracts;
     private final EmployeeRepository employees;
     private final WorkingScheduleRepository schedules;
@@ -47,17 +61,50 @@ public class ContractService {
         this.audit = audit;
     }
 
+    /**
+     * Contracts, most recently started first, searchable by reference, job title or the employee's name.
+     *
+     * <p>EXPIRED is a derived state, not a stored one, so filtering on it means running contracts whose
+     * end date has passed rather than a column comparison.
+     */
     @PreAuthorize("hasAuthority('contract.read.all')")
     @Transactional(readOnly = true)
-    public List<ContractDto> list(Long employeeId, String state, LocalDate endsBefore) {
+    public Page<ContractDto> list(Long employeeId, String state, LocalDate endsBefore, String q, Pageable pageable) {
+        List<Long> matchedEmployees = null;
+        if (q != null && !q.isBlank()) {
+            matchedEmployees = employees.findIdsMatching("%" + q.toLowerCase() + "%");
+        }
+        final List<Long> byName = matchedEmployees;
+        LocalDate today = LocalDate.now();
+
         Specification<Contract> spec = (root, cq, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (employeeId != null) ps.add(cb.equal(root.get("employeeId"), employeeId));
-            if (state != null) ps.add(cb.equal(root.get("state"), state));
+            if (state != null && !state.isBlank()) {
+                if ("EXPIRED".equals(state)) {
+                    ps.add(cb.equal(root.get("state"), "RUNNING"));
+                    ps.add(cb.lessThan(root.get("endDate"), today));
+                } else if ("RUNNING".equals(state)) {
+                    ps.add(cb.equal(root.get("state"), "RUNNING"));
+                    ps.add(cb.or(cb.isNull(root.get("endDate")),
+                            cb.greaterThanOrEqualTo(root.get("endDate"), today)));
+                } else {
+                    ps.add(cb.equal(root.get("state"), state));
+                }
+            }
             if (endsBefore != null) ps.add(cb.lessThan(root.get("endDate"), endsBefore));
+            if (q != null && !q.isBlank()) {
+                ps.add(cb.or(Specs.like(cb, root.get("reference"), q),
+                        Specs.like(cb, root.get("jobTitle"), q),
+                        Specs.in(cb, root.get("employeeId"), byName)));
+            }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        return contracts.findAll(spec).stream().map(c -> toDto(c, true)).toList();
+        Page<Contract> page = contracts.findAll(spec, Paging.normalise(pageable, DEFAULT_SORT, SORTS));
+        Map<Long, Employee> employeeById = new HashMap<>();
+        employees.findAllById(page.getContent().stream().map(Contract::getEmployeeId).collect(Collectors.toSet()))
+                .forEach(e -> employeeById.put(e.getId(), e));
+        return page.map(c -> toDto(c, true, employeeById.get(c.getEmployeeId())));
     }
 
     @PreAuthorize("hasAuthority('contract.read.own')")
@@ -94,7 +141,7 @@ public class ContractService {
     public ContractDto update(Long id, UpdateContract in) {
         Contract c = contracts.findById(id).orElseThrow(() -> ApiException.notFound("contract"));
         if (!List.of("DRAFT", "RUNNING").contains(c.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only draft or running contracts can be updated.");
+            throw ApiException.illegalState("Only draft or running contracts can be updated.");
         }
         if (in.wage() != null) c.setWage(in.wage());
         if (in.wageType() != null) c.setWageType(in.wageType());
@@ -113,7 +160,7 @@ public class ContractService {
     public ContractDto activate(Long id) {
         Contract c = contracts.findById(id).orElseThrow(() -> ApiException.notFound("contract"));
         if (!"DRAFT".equals(c.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a draft contract can be activated.");
+            throw ApiException.illegalState("Only a draft contract can be activated.");
         }
         c.setState("RUNNING");
         audit.record(Channel.UI, "ACTIVATE", "contract", id.toString(), "ALLOW", null, null, null);
@@ -125,7 +172,7 @@ public class ContractService {
     public ContractDto cancel(Long id) {
         Contract c = contracts.findById(id).orElseThrow(() -> ApiException.notFound("contract"));
         if (!List.of("DRAFT", "RUNNING").contains(c.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only draft or running contracts can be cancelled.");
+            throw ApiException.illegalState("Only draft or running contracts can be cancelled.");
         }
         c.setState("CANCELLED");
         audit.record(Channel.UI, "CANCEL", "contract", id.toString(), "ALLOW", null, null, null);
@@ -137,14 +184,19 @@ public class ContractService {
     public void delete(Long id) {
         Contract c = contracts.findById(id).orElseThrow(() -> ApiException.notFound("contract"));
         if (!"DRAFT".equals(c.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a draft contract can be deleted.");
+            throw ApiException.illegalState("Only a draft contract can be deleted.");
         }
         contracts.delete(c);
         audit.record(Channel.UI, "DELETE", "contract", id.toString(), "ALLOW", null, null, null);
     }
 
     public ContractDto toDto(Contract c, boolean full) {
-        String empName = employees.findById(c.getEmployeeId()).map(Employee::getDisplayName).orElse(null);
+        return toDto(c, full, employees.findById(c.getEmployeeId()).orElse(null));
+    }
+
+    /** Overload used when listing, where the employees for the page were already loaded in one query. */
+    public ContractDto toDto(Contract c, boolean full, Employee employee) {
+        String empName = employee == null ? null : employee.getDisplayName();
         String schedName = c.getWorkingScheduleId() == null ? null :
                 schedules.findById(c.getWorkingScheduleId()).map(WorkingSchedule::getName).orElse(null);
         String structName = c.getSalaryStructureId() == null ? null :
@@ -161,6 +213,36 @@ public class ContractService {
         return new ContractDto(c.getId(), c.getEmployeeId(), empName, c.getReference(), null, null,
                 c.getStartDate(), c.getEndDate(), derived, c.getWorkingScheduleId(), schedName,
                 null, null, c.getJobTitle(), c.getDepartmentId(), activeNow, c.getVersion());
+    }
+
+    /**
+     * Creates an already-running contract from a template, for the employee onboarding flow.
+     *
+     * <p>Intentionally not permission annotated: it is only reachable from
+     * {@code EmployeeService.create}, which checks contract.create.all and contract.activate itself
+     * before calling. A self-invoked annotated method would not be checked at all, so the check is
+     * made explicit at the caller rather than implied here.
+     */
+    @Transactional
+    Contract createRunningFromTemplate(Employee employee, ContractTemplate template,
+                                       java.math.BigDecimal wageOverride, LocalDate startDate) {
+        Contract c = new Contract();
+        c.setReference(nextReference());
+        c.setEmployeeId(employee.getId());
+        c.setWage(wageOverride != null ? wageOverride : template.getWage());
+        c.setWageType(template.getWageType());
+        c.setStartDate(startDate);
+        c.setState("RUNNING");
+        // The template's schedule and structure win; anything it leaves blank falls back to the employee.
+        c.setWorkingScheduleId(template.getWorkingScheduleId() != null
+                ? template.getWorkingScheduleId() : employee.getWorkingScheduleId());
+        c.setSalaryStructureId(template.getSalaryStructureId());
+        c.setJobTitle(template.getJobTitle() != null ? template.getJobTitle() : employee.getJobTitle());
+        c.setDepartmentId(employee.getDepartmentId());
+        c = contracts.save(c);
+        audit.record(Channel.UI, "CREATE_FROM_TEMPLATE", "contract", c.getId().toString(), "ALLOW",
+                "template: " + template.getName(), null, null);
+        return c;
     }
 
     private String nextReference() {

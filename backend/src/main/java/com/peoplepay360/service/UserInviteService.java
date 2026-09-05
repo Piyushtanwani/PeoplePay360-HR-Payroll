@@ -13,6 +13,7 @@ import com.peoplepay360.security.PasswordResetRateLimiter;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import com.peoplepay360.security.PasswordPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -126,14 +127,14 @@ public class UserInviteService {
     @Transactional
     public void redeem(String token, String newPassword) {
         if (token == null || token.isBlank()) throw ApiException.validation("This link is not valid.");
-        if (newPassword == null || newPassword.length() < 10) {
-            throw ApiException.validation("Use at least 10 characters.");
-        }
         PasswordSetupToken t = tokens.findByTokenHash(hash(token))
                 .filter(PasswordSetupToken::isUsable)
                 .orElseThrow(() -> ApiException.validation("This link has expired or was already used."));
 
         AppUser user = users.findById(t.getUserId()).orElseThrow(() -> ApiException.notFound("user"));
+        // Same rule as the self-service change form, so an account cannot end up with a password one
+        // path would have refused.
+        PasswordPolicy.validate(newPassword, user.getEmail());
         user.setPasswordHash(encoder.encode(newPassword));
         user.setActive(true);
         users.save(user);
@@ -157,6 +158,18 @@ public class UserInviteService {
             String token = mint(user.getId(), "PASSWORD_RESET", props.getInviteTtlHours());
             sendInvite(user, token, true);
         });
+    }
+
+    /**
+     * Invalidates any outstanding invite or reset link for a user. Called after a password change so a
+     * link that was already in someone's inbox cannot be used to change it back.
+     */
+    @Transactional
+    public void invalidateOutstanding(Long userId) {
+        for (PasswordSetupToken t : tokens.findByUserIdAndUsedAtIsNull(userId)) {
+            t.setUsedAt(OffsetDateTime.now());
+            tokens.save(t);
+        }
     }
 
     /** Whether a token is still redeemable, so the page can show a clear message before asking for input. */

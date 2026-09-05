@@ -3,17 +3,17 @@ from app.backend import backend_client
 from app.blocks import kpi_block, table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, rows_of
 
 
 @registry.register(
     name="timeoff_get_balance",
     description="Fetches accrued, taken, pending, and remaining leave balances for an employee across all leave types.",
-    required_permission="timeoff.read",
+    required_permission="timeoff_allocation.read.own",
     parameters={
         "type": "object",
         "properties": {
-            "employeeId": {"type": "integer", "description": "Optional employee ID. Defaults to the current user's profile if omitted."}
+            "employeeId": {"type": "integer", "description": "Another employee's ID. Omit it to read your own balances, which is what most questions mean. Ignored unless you may read everybody's leave."}
         },
         "required": [],
     },
@@ -24,14 +24,21 @@ async def timeoff_get_balance_tool(
     token: str,
     claims: TokenClaims,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[str], Optional[str]]:
-    emp_id = args.get("employeeId") or claims.employee_id
+    # A caller scoped to their own records gets their own records, whatever id the model supplied.
+    # Models invent plausible ids, and asking the backend for a stranger's balance earns a 403 that
+    # reads to the person as "the assistant is broken" rather than "you asked for someone else".
+    requested = args.get("employeeId")
+    if requested is not None and not claims.has_permission("timeoff_allocation.read.all"):
+        requested = None
+    emp_id = requested or claims.employee_id
     params = {"employeeId": emp_id} if emp_id else {}
 
     data = await backend_client.get("/api/timeoff/balances", params=params, token=token)
-    if not data or not isinstance(data, list):
+    rows_from_backend = rows_of(data)
+    if not rows_from_backend:
         return "No leave balances found for this employee.", [], "timeoff_balance", str(emp_id) if emp_id else None
 
-    formatted = format_tool_result(data)
+    formatted = format_tool_result(rows_from_backend)
     balances = formatted["ui_view"]
 
     rows = []

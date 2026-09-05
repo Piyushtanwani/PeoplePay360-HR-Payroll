@@ -33,12 +33,14 @@ public class AuthService {
     private final AuditService audit;
     private final CurrentUser currentUser;
     private final AppProperties props;
-    @Value("${spring.profiles.active:dev}") private String activeProfile;
+    private final String activeProfile;
 
     public AuthService(AppUserRepository users, EffectivePermissionRepository effective,
                        EmployeeRepository employees, EmployeeService employeeService, PasswordEncoder encoder,
                        JwtService jwtService, LoginRateLimiter rateLimiter, AuditService audit,
-                       CurrentUser currentUser, AppProperties props) {
+                       CurrentUser currentUser, AppProperties props,
+                       @Value("${spring.profiles.active:dev}") String activeProfile) {
+        this.activeProfile = activeProfile;
         this.users = users;
         this.effective = effective;
         this.employees = employees;

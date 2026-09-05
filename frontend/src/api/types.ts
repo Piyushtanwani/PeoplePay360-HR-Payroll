@@ -15,13 +15,6 @@ export type DeliveryStatus = 'NOT_SENT' | 'QUEUED' | 'SENT' | 'FAILED' | 'SKIPPE
 export type IssueSeverity = 'BLOCKER' | 'WARNING'
 export type IssueStatus = 'OPEN' | 'RESOLVED' | 'OVERRIDDEN'
 
-export interface Page<T> {
-  content: T[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-}
 
 export interface UserSummary {
   id: number
@@ -42,15 +35,6 @@ export interface MeResponse {
 
 export interface Department { id: number; name: string; employeeCount: number }
 
-/** An onboarded employee with no login yet, offered when creating a user. */
-export interface InvitableEmployee {
-  employeeId: number
-  employeeNo: string
-  displayName: string
-  workEmail: string | null
-  jobTitle: string | null
-  departmentName: string | null
-}
 export interface CreateUserResult {
   user: AdminUser
   inviteSent: boolean
@@ -100,11 +84,57 @@ export interface Employee extends EmployeeSummary {
   workEmail: string
   hireDate: string
   userId: number | null
+  /** The role on this person's login, or null when they have none. */
+  roleCode: RoleCode | null
   workingScheduleId: number | null
   workingScheduleName: string | null
   activeContractId: number | null
   bankAccount: { bankName: string; accountLast4: string; hasAccount: boolean } | null
   counts: { contracts: number; attendance: number; timeOffRequests: number; allocations: number }
+  /** Present only on the response to creating an employee; null on every read. */
+  onboarding: OnboardingOutcome | null
+}
+
+/** What creating an employee also created, so the confirmation can say so. */
+export interface OnboardingOutcome {
+  userId: number | null
+  inviteSent: boolean
+  inviteMessage: string | null
+  contractId: number | null
+  contractReference: string | null
+}
+
+export interface SaveEmployee {
+  displayName: string
+  departmentId?: number | null
+  managerId?: number | null
+  employeeType?: EmployeeType
+  workingScheduleId?: number | null
+  hireDate?: string | null
+  workEmail?: string | null
+  jobTitle?: string | null
+  /** Creates a login with this role and emails an invite. */
+  roleCode?: RoleCode | null
+  contractTemplateId?: number | null
+  wage?: number | null
+  contractStartDate?: string | null
+  active?: boolean
+}
+
+/** Reusable contract terms, applied when an employee is created. */
+export interface ContractTemplate {
+  id: number
+  name: string
+  wage: number
+  wageType: 'MONTHLY' | 'HOURLY'
+  workingScheduleId: number | null
+  workingScheduleName: string | null
+  salaryStructureId: number | null
+  salaryStructureName: string | null
+  jobTitle: string | null
+  description: string | null
+  active: boolean
+  createdAt: string
 }
 
 export interface ScheduleLine { dayOfWeek: number; startTime: string; endTime: string; breakMinutes: number }
@@ -163,7 +193,25 @@ export interface AttendanceException {
   type: ExceptionType
   minutes: number
   resolved: boolean
-  attendanceId: number
+  attendanceId: number | null
+  /** The scheduled finish for that weekday, so "set to the scheduled end" is a real value. */
+  scheduledEnd: string | null
+  resolvedBy: number | null
+  resolvedAt: string | null
+  resolutionNote: string | null
+}
+
+/** One line of the "how attendance is classified" panel. */
+export interface RuleExplanation { key: string; title: string; detail: string }
+
+/** The thresholds the classifier actually uses, so the help panel cannot drift from the behaviour. */
+export interface AttendanceRules {
+  lateGraceMinutes: number
+  overtimeThresholdMinutes: number
+  missingCheckoutAfterMinutes: number
+  timezone: string
+  statuses: RuleExplanation[]
+  edgeCases: RuleExplanation[]
 }
 
 export interface TimeOffType {
@@ -329,6 +377,14 @@ export interface EligibleEmployee {
 
 export interface DashboardAlert { severity: IssueSeverity | 'INFO'; kind: 'PAYROLL' | 'HR'; message: string; link: string }
 
+/** Identity tiles, present only for a caller who may read users. */
+export interface AdminBlock {
+  activeUsers: number
+  pendingInvites: number
+  grantsExpiringIn7Days: number
+  deniedActionsLast24h: number
+}
+
 export interface Dashboard {
   period: string
   filters: { departmentId: number | null; employeeType: EmployeeType | null }
@@ -355,6 +411,68 @@ export interface Dashboard {
   }
   timeOffOverview: TimeOffOverviewRow[]
   departments: { departmentName: string; headcount: number; salarySpend?: number }[]
+  admin: AdminBlock | null
+  headcount: number
+  pendingApprovals: number
+  openExceptions: number
+}
+
+/** The employee's own home screen. */
+export interface MyDashboard {
+  displayName: string
+  employeeNo: string
+  jobTitle: string | null
+  departmentName: string | null
+  openAttendance: Attendance | null
+  todayAttendance: Attendance[]
+  attendanceDaysThisMonth: number
+  exceptionsThisMonth: number
+  leaveBalances: LeaveBalance[]
+  pendingRequests: TimeOffRequest[]
+  recentPayslips: { id: number; periodStart: string; periodEnd: string; net: number; payrunState: PayrunState }[]
+  upcomingHolidays: Holiday[]
+  contract: {
+    id: number
+    reference: string
+    jobTitle: string | null
+    wageType: string | null
+    startDate: string
+    endDate: string | null
+    state: ContractState
+    scheduleName: string | null
+  } | null
+}
+
+/** What a person may see and change about themselves. */
+export interface MyProfile {
+  user: UserSummary
+  employee: Employee | null
+  passwordRule: string
+}
+
+/** One row of a salary dry run. */
+export interface DryRunRow {
+  employeeId: number
+  employeeName: string
+  employeeNo: string
+  currentNet: number | null
+  newNet: number
+  delta: number | null
+  negative: boolean
+  lines: PayslipLine[]
+}
+
+export interface DryRunResult {
+  results: DryRunRow[]
+  totals: {
+    totalCurrentNet: number
+    totalNewNet: number
+    totalDelta: number
+    employeeCount: number
+    negativeEmployeeIds: number[]
+    warnings: string[]
+    skipped: string[]
+  }
 }
 
 export interface Grant {
@@ -392,7 +510,8 @@ export interface AuditEvent {
   occurredAt: string
   actorUserId: number
   actorName: string
-  actorRoles: string
+  /** Postgres text[]; arrives as an array. */
+  actorRoles: string[]
   channel: 'UI' | 'MCP' | 'CHAT' | 'SYSTEM'
   action: string
   resourceType: string
@@ -430,16 +549,51 @@ export interface AiProviderPreset {
   docsUrl: string
 }
 
-export interface AiModel { id: string; name: string; supportsTools: boolean | null; contextLength: number | null }
 
 export interface ChatSession { id: number; title: string; startedAt: string; lastMessageAt: string | null; messageCount: number }
-export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
+/** One structured result returned by an assistant tool, rendered under the reply. */
+export interface ChatBlock {
+  type: 'kpi' | 'table' | 'list' | 'link' | 'refusal' | 'proposed_action'
+  title?: string
+  value?: string
+  subtitle?: string
+  variant?: 'neutral' | 'good' | 'warn' | 'bad'
+  headers?: string[]
+  rows?: string[][]
+  items?: string[]
+  label?: string
+  url?: string
+  reason?: string
+  suggestedTopic?: string
+  action?: string
+  target?: string
+}
+
+/** A record lookup the assistant attempted, allowed or refused, kept for the audit trail. */
+export interface ChatToolCall {
+  toolName: string
+  allowed: boolean
+  denialCode: string | null
+  latencyMs: number | null
+  resourceType: string | null
+  resourceId: string | null
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  blocks?: ChatBlock[]
+  toolCalls?: ChatToolCall[]
+}
 export interface ChatCapabilities {
   configured: boolean
   provider: string | null
   model: string | null
   toolsAvailable: boolean
-  toolsStatus: 'COMING_SOON' | 'READY'
+  toolsStatus: 'READY' | 'UNAVAILABLE'
+  tools: { name: string; description: string }[]
 }
 export interface QuickSetupResult { profile: AiProfile; models: string[]; ok: boolean; message: string }
 

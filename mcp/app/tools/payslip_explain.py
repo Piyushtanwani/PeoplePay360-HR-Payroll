@@ -9,7 +9,7 @@ from app.views import format_tool_result
 @registry.register(
     name="payslip_explain",
     description="Provides an itemized mathematical explanation and salary breakdown for a specific payslip, including basic wage, allowance lines, and statutory deductions.",
-    required_permission="payslip.read",
+    required_permission="payslip.read.own",
     parameters={
         "type": "object",
         "properties": {
@@ -37,9 +37,10 @@ async def payslip_explain_tool(
 
     emp_name = ps.get("employeeName", f"Emp #{ps.get('employeeId')}")
     emp_no = ps.get("employeeNo", "N/A")
-    net_pay = float(ps.get("netPay") or 0.0)
-    gross_pay = float(ps.get("grossPay") or 0.0)
-    deductions = float(ps.get("totalDeductions") or 0.0)
+    # net/gross/deductions are the endpoint's own field names.
+    net_pay = float(ps.get("net") or 0.0)
+    gross_pay = float(ps.get("gross") or 0.0)
+    deductions = float(ps.get("deductions") or 0.0)
     lines = ps.get("lines", [])
 
     line_rows = []
@@ -57,7 +58,7 @@ async def payslip_explain_tool(
             title=f"Net Pay for {emp_name}",
             value=f"₹{net_pay:,.2f}",
             subtitle=f"Gross: ₹{gross_pay:,.2f} | Deductions: ₹{deductions:,.2f}",
-            variant="positive"
+            variant="good"
         )
     ]
 

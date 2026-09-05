@@ -2,6 +2,7 @@ package com.peoplepay360.service;
 
 import com.peoplepay360.model.Contract;
 import com.peoplepay360.repository.ContractRepository;
+import com.peoplepay360.repository.ContractTemplateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -19,6 +20,7 @@ import java.util.*;
 import com.peoplepay360.model.AppUser;
 import com.peoplepay360.model.Candidate;
 import com.peoplepay360.model.CandidateIdentity;
+import com.peoplepay360.model.ContractTemplate;
 import com.peoplepay360.model.Department;
 import com.peoplepay360.model.Employee;
 import com.peoplepay360.model.EmployeeBankAccount;
@@ -42,7 +44,6 @@ import com.peoplepay360.repository.EmployeeRepository;
 import com.peoplepay360.repository.JobOpeningRepository;
 import com.peoplepay360.repository.PublicHolidayRepository;
 import com.peoplepay360.repository.RoleRepository;
-import com.peoplepay360.repository.SalaryRuleRepository;
 import com.peoplepay360.repository.SalaryStructureRepository;
 import com.peoplepay360.repository.TimeOffAllocationRepository;
 import com.peoplepay360.repository.TimeOffRequestRepository;
@@ -69,7 +70,6 @@ public class DemoSeeder implements ApplicationRunner {
     private final WorkingScheduleRepository schedules;
     private final ContractRepository contracts;
     private final SalaryStructureRepository structures;
-    private final SalaryRuleRepository rules;
     private final TimeOffTypeRepository types;
     private final TimeOffAllocationRepository allocations;
     private final TimeOffRequestRepository requests;
@@ -81,15 +81,17 @@ public class DemoSeeder implements ApplicationRunner {
     private final SeedPayrunRunner payrunRunner;
     private final AttendanceRepository attendance;
     private final AttendanceExceptionRepository attendanceExceptions;
+    private final ContractTemplateRepository contractTemplates;
 
     public DemoSeeder(AppUserRepository users, RoleRepository roles, UserPermissionGrantRepository grants,
                       DepartmentRepository departments, EmployeeRepository employees, EmployeeBankAccountRepository banks,
                       WorkingScheduleRepository schedules, ContractRepository contracts,
-                      SalaryStructureRepository structures, SalaryRuleRepository rules, TimeOffTypeRepository types,
+                      SalaryStructureRepository structures, TimeOffTypeRepository types,
                       TimeOffAllocationRepository allocations, TimeOffRequestRepository requests,
                       PublicHolidayRepository holidays, JobOpeningRepository openings, CandidateRepository candidates,
                       CandidateIdentityRepository identities, PasswordEncoder encoder, SeedPayrunRunner payrunRunner,
-                      AttendanceRepository attendance, AttendanceExceptionRepository attendanceExceptions) {
+                      AttendanceRepository attendance, AttendanceExceptionRepository attendanceExceptions,
+                      ContractTemplateRepository contractTemplates) {
         this.users = users;
         this.roles = roles;
         this.grants = grants;
@@ -99,7 +101,6 @@ public class DemoSeeder implements ApplicationRunner {
         this.schedules = schedules;
         this.contracts = contracts;
         this.structures = structures;
-        this.rules = rules;
         this.types = types;
         this.allocations = allocations;
         this.requests = requests;
@@ -111,6 +112,7 @@ public class DemoSeeder implements ApplicationRunner {
         this.payrunRunner = payrunRunner;
         this.attendance = attendance;
         this.attendanceExceptions = attendanceExceptions;
+        this.contractTemplates = contractTemplates;
     }
 
     @Override
@@ -130,6 +132,7 @@ public class DemoSeeder implements ApplicationRunner {
         SalaryStructure structure = seedStructure();
         Map<String, Department> depts = seedDepartments();
         seedTypesAndHolidays();
+        seedContractTemplates(schedule, structure);
 
         // Demo role accounts
         List<Object[]> demoAccounts = List.of(
@@ -324,12 +327,10 @@ public class DemoSeeder implements ApplicationRunner {
             l.setStartTime(LocalTime.of(9, 0));
             l.setEndTime(LocalTime.of(17, 0));
             l.setBreakMinutes(30);
-            s.getLines().add(l);
+            s.addLine(l);
             total = total.add(new BigDecimal("7.5"));
         }
         s.setWeeklyHours(total);
-        s = schedules.save(s);
-        for (WorkingScheduleLine l : s.getLines()) l.setScheduleId(s.getId());
         return schedules.save(s);
     }
 
@@ -363,7 +364,7 @@ public class DemoSeeder implements ApplicationRunner {
         r.setBaseRuleCode(base);
         r.setFormula(formula);
         r.setActive(true);
-        s.getRules().add(r);
+        s.addRule(r); // sets the back-reference the foreign key is mapped to
     }
 
     private Map<String, Department> seedDepartments() {
@@ -374,6 +375,37 @@ public class DemoSeeder implements ApplicationRunner {
             map.put(n, departments.save(d));
         }
         return map;
+    }
+
+    /**
+     * Three starting templates, so onboarding somebody is one choice rather than six fields.
+     *
+     * They are the shapes a small company actually hires in: a salaried permanent role, a fixed-term
+     * contract, and a paid intern. Each carries the wage, the schedule and the salary structure, which
+     * is everything a running contract needs.
+     */
+    private void seedContractTemplates(WorkingSchedule schedule, SalaryStructure structure) {
+        if (contractTemplates.count() > 0) return;
+        record Seed(String name, String jobTitle, String wage, String description) {}
+        List<Seed> seeds = List.of(
+                new Seed("Permanent — full time", "Team member", "50000",
+                        "Standard salaried role on the monthly structure and the standard working week."),
+                new Seed("Fixed term — 12 months", "Contractor", "60000",
+                        "Same pay rules as a permanent role, with an end date set when the contract is created."),
+                new Seed("Intern — paid", "Intern", "18000",
+                        "A reduced stipend on the same schedule, for a placement of a few months."));
+        for (Seed seed : seeds) {
+            ContractTemplate t = new ContractTemplate();
+            t.setName(seed.name());
+            t.setJobTitle(seed.jobTitle());
+            t.setWage(new BigDecimal(seed.wage()));
+            t.setWageType("MONTHLY");
+            t.setWorkingScheduleId(schedule.getId());
+            t.setSalaryStructureId(structure.getId());
+            t.setDescription(seed.description());
+            t.setActive(true);
+            contractTemplates.save(t);
+        }
     }
 
     private void seedTypesAndHolidays() {

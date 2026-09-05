@@ -37,4 +37,17 @@ public class IdentityDtos {
     public record CreateGrant(@NotBlank String permissionCode, String effect, @NotBlank String reason,
                               OffsetDateTime expiresAt) {}
     public record UserPermissions(List<String> effective, List<String> fromRole, List<GrantDto> grants) {}
+
+    // ---- self service ------------------------------------------------------
+    /** What a signed-in person may see and change about themselves. */
+    public record MyProfile(UserSummary user, com.peoplepay360.dto.EmployeeDtos.EmployeeDetail employee,
+                            String passwordRule) {}
+    public record UpdateMyProfile(@NotBlank String displayName) {}
+    /**
+     * @param currentPassword required: changing where wages are paid is the fraud path the self-action
+     *                        guard exists for, so it is re-authenticated rather than merely logged in.
+     */
+    public record UpdateMyBank(@NotBlank String bankName, @NotBlank String accountNumber, String ifsc,
+                               @NotBlank String currentPassword) {}
+    public record ChangePassword(@NotBlank String currentPassword, @NotBlank String newPassword) {}
 }

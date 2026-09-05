@@ -83,20 +83,25 @@ mcp/
 
 ## 🛠️ The 13 FastMCP Tools
 
+The permission column holds codes from the real catalogue, which the backend seeds and expands
+through `implies`. A caller holding `employee.read.all` therefore satisfies `employee.read.own`
+as well, so a tool scoped to `.own` is available to everyone and returns only what that person
+may see; a tool scoped to `.all` is refused outright to an employee.
+
 | Tool Name | Required Permission | Backend Endpoint Called | Description & Produced Blocks |
 |---|---|---|---|
 | `whoami` | `authenticated` | `GET /api/auth/me` | Current user identity, active role, permissions. Generates KPI & List blocks. |
-| `employee_search` | `employee.read` | `GET /api/employees` | Search employees by name, department, status. Strips PII. Generates Table block. |
-| `employee_summary` | `employee.read` | `GET /api/employees/{id}/summary` | 360 overview of employee: contracts, attendance, leave counts, job info. Generates KPI & Link blocks. |
-| `timeoff_get_balance` | `timeoff.read` | `GET /api/timeoff/balances` | Accrued, taken, pending, and remaining days for leave types. Generates KPI & Table blocks. |
-| `timeoff_list_pending` | `timeoff.read` | `GET /api/timeoff/requests` | Pending leave requests awaiting manager approval. Generates Table block. |
-| `attendance_list_exceptions`| `attendance.read` | `GET /api/attendance/exceptions` | Missing check-outs, late arrivals, early departures for period. Generates KPI & Table blocks. |
-| `payrun_list` | `payroll.read` | `GET /api/payruns` | Payrun batches with state (DRAFT, COMPUTED, VALIDATED, PAID). Generates Table & Action blocks. |
-| `payrun_list_issues` | `payroll.read` | `GET /api/payruns/{id}/issues` | Pre-validation warning checks (missing bank, overlapping contracts). Generates KPI & Table blocks. |
-| `payslip_list` | `payslip.read` | `GET /api/payslips` | Payslips with gross pay, deductions, and net salary. Generates Table block. |
-| `payslip_explain` | `payslip.read` | `GET /api/payslips/{id}` | Detailed salary rule formula computation lines and download link. Generates KPI & Table blocks. |
-| `dashboard_kpis` | `payroll.read` | `GET /api/reports/dashboard` | High-level analytics: total net paid, headcount, avg salary, attendance health. Generates multiple KPI blocks. |
-| `contract_list_expiring` | `contract.read` | `GET /api/contracts` | Employment contracts expiring within a given time window (e.g. 60 days). Generates Table block. |
+| `employee_search` | `employee.read.all` | `GET /api/employees` | Search employees by name, department, status. Strips PII. Generates Table block. |
+| `employee_summary` | `employee.read.own` | `GET /api/employees/{id}/summary` | 360 overview of employee: contracts, attendance, leave counts, job info. Generates KPI & Link blocks. |
+| `timeoff_get_balance` | `timeoff_allocation.read.own` | `GET /api/timeoff/balances` | Accrued, taken, pending, and remaining days for leave types. Generates KPI & Table blocks. |
+| `timeoff_list_pending` | `timeoff_request.read.all` | `GET /api/timeoff/requests` | Pending leave requests awaiting manager approval. Generates Table block. |
+| `attendance_list_exceptions`| `attendance.read.all` | `GET /api/attendance/exceptions` | Missing check-outs, late arrivals, early departures for period. Generates KPI & Table blocks. |
+| `payrun_list` | `payrun.read` | `GET /api/payruns` | Payrun batches with state (DRAFT, COMPUTED, VALIDATED, PAID). Generates Table & Action blocks. |
+| `payrun_list_issues` | `payrun.read` | `GET /api/payruns/{id}/issues` | Pre-validation warning checks (missing bank, overlapping contracts). Generates KPI & Table blocks. |
+| `payslip_list` | `payslip.read.own` | `GET /api/payslips` | Payslips with gross pay, deductions, and net salary. Generates Table block. |
+| `payslip_explain` | `payslip.read.own` | `GET /api/payslips/{id}` | Detailed salary rule formula computation lines and download link. Generates KPI & Table blocks. |
+| `dashboard_kpis` | `dashboard.read.hr` | `GET /api/reports/dashboard` | High-level analytics: total net paid, headcount, avg salary, attendance health. Generates multiple KPI blocks. |
+| `contract_list_expiring` | `contract.read.all` | `GET /api/contracts` | Employment contracts expiring within a given time window (e.g. 60 days). Generates Table block. |
 | `candidate_compare` | `candidate.compare` | `GET /api/recruitment/openings/{id}/comparison` | Compares 2-5 job applicants against rubric score and salary fit. Generates KPI & Table blocks. |
 
 ---
@@ -111,6 +116,10 @@ mcp/
    Sensitive information (`workEmail`, `phone`, `bankAccountNumber`, `panNumber`) is stripped from `model_view` before being passed into the LLM context, preventing training leakage and unauthorized data exposure.
 4. **Gateway Secret Verification:**
    All calls between Spring Boot and MCP must provide a constant-time validated `X-Gateway-Secret` header.
+5. **Delegated, Short-Lived Tokens:**
+   The backend mints a token per message with `aud=mcp`, `act=chat` and `scp=["read"]`, carrying the
+   caller's own permission codes and a five-minute lifetime. The MCP service never holds a standing
+   credential of its own, so it can never read more than the person who asked.
 
 ---
 
@@ -146,3 +155,22 @@ The service will be available at `http://localhost:8000`.
 ```bash
 pytest
 ```
+
+### Choosing a model
+
+Any OpenAI-compatible chat model works, but the assistant is only useful with one that calls tools.
+A model that cannot will answer from general knowledge without reading a single record, and a vision
+or embedding model is rejected outright by Ollama with "does not support tools". The model picker in
+AI Settings ranks tool-capable models first and sinks embedding, vision and reasoning-first models to
+the bottom for that reason.
+
+On Ollama, the smallest model that calls tools reliably is **`qwen3:1.7b`**, at about 1.4 GB:
+
+```bash
+ollama pull qwen3:1.7b
+```
+
+It answers a trivial prompt in roughly three seconds on an ordinary laptop, against forty-five for
+the 9 GB `qwen3:latest`. Other small options that support tools are `llama3.2:3b` (2 GB) and
+`qwen2.5:3b` (1.9 GB). Avoid `deepseek-r1` at any size: it is a reasoning distillation that thinks
+at length before answering and calls tools poorly.

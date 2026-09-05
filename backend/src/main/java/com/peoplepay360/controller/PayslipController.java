@@ -1,11 +1,12 @@
 package com.peoplepay360.controller;
 
+import com.peoplepay360.common.PageResponse;
 import com.peoplepay360.dto.PayrollDtos.*;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
 import java.util.Map;
 import com.peoplepay360.service.PayslipPdfService;
 import com.peoplepay360.service.PayslipService;
@@ -25,10 +26,12 @@ public class PayslipController {
     }
 
     @GetMapping
-    public List<PayslipDto> list(@RequestParam(required = false) Long payrunId,
-                                 @RequestParam(required = false) Long employeeId,
-                                 @RequestParam(required = false) String period) {
-        return service.list(payrunId, employeeId, period);
+    public PageResponse<PayslipDto> list(@RequestParam(required = false) Long payrunId,
+                                         @RequestParam(required = false) Long employeeId,
+                                         @RequestParam(required = false) String period,
+                                         @RequestParam(required = false) String q,
+                                         Pageable pageable) {
+        return PageResponse.of(service.list(payrunId, employeeId, period, q, pageable));
     }
     @GetMapping("/{id}")
     public PayslipDto get(@PathVariable Long id) { return service.get(id); }

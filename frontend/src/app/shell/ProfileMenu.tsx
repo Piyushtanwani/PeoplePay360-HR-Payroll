@@ -1,7 +1,7 @@
 import * as React from 'react'
 import * as Menu from '@radix-ui/react-dropdown-menu'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Settings, User } from 'lucide-react'
+import { IdCard, LogOut, User } from 'lucide-react'
 import { useAuth } from '@/auth/AuthProvider'
 import { Avatar } from '@/components/ui'
 
@@ -41,14 +41,14 @@ export function ProfileMenu() {
 
           <Menu.Separator className="my-1 h-px bg-separator" />
 
+          <Menu.Item className={ITEM} onSelect={() => navigate('/profile')}>
+            <User className="h-4 w-4" /> Your profile
+          </Menu.Item>
           {me?.user.employeeId ? (
             <Menu.Item className={ITEM} onSelect={() => navigate(`/employees/${me.user.employeeId}`)}>
-              <User className="h-4 w-4" /> My profile
+              <IdCard className="h-4 w-4" /> Your employee record
             </Menu.Item>
           ) : null}
-          <Menu.Item className={ITEM} onSelect={() => navigate('/settings')}>
-            <Settings className="h-4 w-4" /> Settings
-          </Menu.Item>
 
           <Menu.Separator className="my-1 h-px bg-separator" />
 

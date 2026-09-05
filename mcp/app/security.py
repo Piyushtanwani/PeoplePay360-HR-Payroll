@@ -23,9 +23,18 @@ class TokenClaims(BaseModel):
     raw_token: str = ""
 
     def has_permission(self, perm: str) -> bool:
-        if "ROLE_ADMIN" in self.roles or self.role == "ROLE_ADMIN":
+        """
+        Whether the caller holds a permission.
+
+        The backend expands implications before minting the token, so a caller with
+        employee.read.all already carries employee.read.own here. An .own requirement is
+        additionally satisfied by the matching .all, which is the same rule the backend applies.
+        """
+        if perm in self.permissions:
             return True
-        return perm in self.permissions
+        if perm.endswith(".own"):
+            return perm[: -len(".own")] + ".all" in self.permissions
+        return False
 
 
 class JwksCache:
@@ -107,16 +116,23 @@ def verify_token(authorization: Optional[str] = Header(None, alias="Authorizatio
                 detail=f"Token verification failed: {str(jwks_err)}"
             )
 
-    # Extract claims normalized
+    # Claim names come from the backend's JwtService. A delegated chat token carries "perms" and
+    # "emp"; the browser token carries "roles" and "perms". Reading the wrong names left every
+    # caller with an empty permission list, so no tool was ever authorised.
     sub = payload.get("sub")
-    user_id = payload.get("userId") or (int(sub) if sub and sub.isdigit() else None)
-    role = payload.get("role")
-    roles = payload.get("roles", [])
-    if role and role not in roles:
-        roles.append(role)
-    permissions = payload.get("permissions") or payload.get("authorities", [])
+    user_id = payload.get("userId") or (int(sub) if sub and str(sub).isdigit() else None)
+    roles = payload.get("roles") or []
+    if isinstance(roles, str):
+        roles = [roles]
+    role = payload.get("role") or (roles[0] if roles else None)
+    permissions = (
+        payload.get("perms")
+        or payload.get("permissions")
+        or payload.get("authorities")
+        or []
+    )
     employee_no = payload.get("employeeNo")
-    employee_id = payload.get("employeeId")
+    employee_id = payload.get("emp") or payload.get("employeeId")
 
     return TokenClaims(
         user_id=user_id,

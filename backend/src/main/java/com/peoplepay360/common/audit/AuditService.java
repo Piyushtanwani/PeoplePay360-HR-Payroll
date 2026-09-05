@@ -6,8 +6,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import com.peoplepay360.model.AuditEvent;
@@ -40,8 +38,8 @@ public class AuditService {
             e.setResourceId(resourceId);
             e.setOutcome(outcome);
             e.setReason(reason);
-            e.setBeforeJson(beforeJson);
-            e.setAfterJson(afterJson);
+            e.setBeforeJson(asJson(beforeJson));
+            e.setAfterJson(asJson(afterJson));
             e.setRequestId(RequestContext.getRequestId());
             writer.write(e);
         } catch (Exception ex) {
@@ -62,5 +60,24 @@ public class AuditService {
     public String toJson(Object o) {
         try { return o == null ? null : mapper.writeValueAsString(o); }
         catch (Exception e) { return null; }
+    }
+
+    /**
+     * Makes a before/after value safe for the json columns.
+     *
+     * <p>Most callers pass a serialised object, but some record a single value: a display name, the
+     * last four digits of an account. Postgres rejects a bare word as json, and because auditing
+     * swallows its own failures the row simply never appeared. A change to where wages are paid must
+     * not be the one event with no trail, so a plain value is quoted into a json string here.
+     */
+    private String asJson(String value) {
+        if (value == null || value.isBlank()) return null;
+        String trimmed = value.trim();
+        try {
+            mapper.readTree(trimmed);
+            return trimmed;
+        } catch (Exception notJson) {
+            return toJson(value);
+        }
     }
 }

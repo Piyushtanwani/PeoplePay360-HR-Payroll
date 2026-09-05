@@ -21,6 +21,9 @@ public class AppProperties {
     private Mcp mcp = new Mcp();
     private Chat chat = new Chat();
     private Ai ai = new Ai();
+    private Attendance attendance = new Attendance();
+    private Payroll payroll = new Payroll();
+    private Security security = new Security();
     private String encryptionKey;
     private String currency = "INR";
     private String timezone = "Asia/Kolkata";
@@ -75,6 +78,37 @@ public class AppProperties {
         public String getDefaultModel() { return defaultModel; }
         public void setDefaultModel(String v) { this.defaultModel = v; }
     }
+    /**
+     * Attendance classification thresholds. These are the numbers the "How attendance is
+     * classified" help panel shows, so the panel can never drift from the classifier.
+     */
+    public static class Attendance {
+        /** Minutes after the scheduled start before a check-in counts as LATE. */
+        private int lateGraceMinutes = 10;
+        /** Minutes worked beyond the scheduled day before it counts as OVERTIME. */
+        private int overtimeThresholdMinutes = 30;
+        /** Minutes after the scheduled end before an open entry is flagged MISSING_CHECKOUT. */
+        private int missingCheckoutAfterMinutes = 240;
+        public int getLateGraceMinutes() { return lateGraceMinutes; }
+        public void setLateGraceMinutes(int v) { this.lateGraceMinutes = v; }
+        public int getOvertimeThresholdMinutes() { return overtimeThresholdMinutes; }
+        public void setOvertimeThresholdMinutes(int v) { this.overtimeThresholdMinutes = v; }
+        public int getMissingCheckoutAfterMinutes() { return missingCheckoutAfterMinutes; }
+        public void setMissingCheckoutAfterMinutes(int v) { this.missingCheckoutAfterMinutes = v; }
+    }
+    public static class Payroll {
+        /** Percentage move in net pay against the previous payslip that raises a VARIANCE_FLAG warning. */
+        private int varianceThresholdPct = 25;
+        public int getVarianceThresholdPct() { return varianceThresholdPct; }
+        public void setVarianceThresholdPct(int v) { this.varianceThresholdPct = v; }
+    }
+    public static class Security {
+        /** Sign-in attempts allowed per email and per IP in a 15 minute window. */
+        private int loginAttempts = 10;
+        public int getLoginAttempts() { return loginAttempts; }
+        public void setLoginAttempts(int v) { this.loginAttempts = v; }
+    }
+
     public Jwt getJwt() { return jwt; }
     public void setJwt(Jwt v) { this.jwt = v; }
     public Mcp getMcp() { return mcp; }
@@ -83,6 +117,12 @@ public class AppProperties {
     public void setChat(Chat v) { this.chat = v; }
     public Ai getAi() { return ai; }
     public void setAi(Ai v) { this.ai = v; }
+    public Attendance getAttendance() { return attendance; }
+    public void setAttendance(Attendance v) { this.attendance = v; }
+    public Payroll getPayroll() { return payroll; }
+    public void setPayroll(Payroll v) { this.payroll = v; }
+    public Security getSecurity() { return security; }
+    public void setSecurity(Security v) { this.security = v; }
     public String getEncryptionKey() { return encryptionKey; }
     public void setEncryptionKey(String v) { this.encryptionKey = v; }
     public String getCurrency() { return currency; }

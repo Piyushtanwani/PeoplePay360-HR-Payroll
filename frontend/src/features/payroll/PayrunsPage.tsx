@@ -1,64 +1,112 @@
-import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus } from 'lucide-react'
-import { api } from '@/api/client'
+import { Plus, Wallet } from 'lucide-react'
+import { usePayruns } from '@/api/hooks'
+import { PAYRUN_STATE_OPTIONS } from '@/api/constants'
 import { useAuth } from '@/auth/AuthProvider'
-import { Button, Card, Chip, DataTable, EmptyState, PageHeader, SegmentedControl, StatusBadge } from '@/components/ui'
-import { fmtDate, money, num } from '@/lib/format'
-import type { Page, Payrun } from '@/api/types'
+import {
+  Button, Card, Chip, DataTable, HelpItems, HelpPopover, PageHeader, Select, StatusBadge, StatusLegend,
+  type Column,
+} from '@/components/ui'
+import { fmtRange, money, num } from '@/lib/format'
+import { useSearchParamState } from '@/lib/hooks/useSearchParamState'
+import { useTableState } from '@/lib/hooks/useTableState'
+import type { Payrun } from '@/api/types'
 
 export function PayrunsPage() {
   const navigate = useNavigate()
   const { can } = useAuth()
-  const [state, setState] = React.useState<string | null>(null)
+  const [state, setState] = useSearchParamState<string>('state', '')
 
-  const query = useQuery({ queryKey: ['payruns', state], queryFn: () => api.page<Payrun>('/api/payruns', { state, size: 100 }) })
+  // Newest period first: the run people want is almost always the most recent.
+  const table = useTableState({ defaultSort: 'periodStart', defaultDir: 'desc' })
+  const list = usePayruns({ ...table.params, state: state || undefined })
+
+  const columns: Column<Payrun>[] = [
+    {
+      key: 'name',
+      header: 'Payrun',
+      sortable: true,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.name}</p>
+          <p className="truncate text-xs2 text-label2">{r.structureName}</p>
+        </div>
+      ),
+    },
+    { key: 'periodStart', header: 'Period', sortable: true, render: (r) => fmtRange(r.periodStart, r.periodEnd) },
+    { key: 'state', header: 'Status', sortable: true, render: (r) => <StatusBadge status={r.state} /> },
+    { key: 'employeeCount', header: 'Employees', align: 'right', render: (r) => num(r.employeeCount) },
+    { key: 'payslipCount', header: 'Payslips', align: 'right', render: (r) => num(r.payslipCount) },
+    {
+      key: 'issues',
+      header: 'Issues',
+      tooltip: 'Blockers must be fixed or overridden before validation. Warnings do not stop payment.',
+      render: (r) => (
+        <span className="flex items-center gap-1">
+          {r.blockerCount > 0 ? <Chip tone="bad">{r.blockerCount} blocking</Chip> : null}
+          {r.warningCount > 0 ? <Chip tone="warn">{r.warningCount} warning</Chip> : null}
+          {r.blockerCount === 0 && r.warningCount === 0 ? <span className="text-label2">None</span> : null}
+        </span>
+      ),
+    },
+    { key: 'totalNet', header: 'Total net', align: 'right', sortable: true, render: (r) => money(r.totalNet) },
+  ]
 
   return (
     <>
       <PageHeader
         title="Payruns"
-        description="Each payrun represents one payroll period and groups the payslips generated for it."
-        actions={can('payrun.create') ? <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => navigate('/payroll/payruns/new')}>New payrun</Button> : undefined}
+        description="A payrun calculates one period for a set of people, checks it, and then pays it."
+        help={
+          <HelpPopover title="How a payrun proceeds">
+            <HelpItems
+              items={[
+                { term: 'Draft', text: 'People are selected but nothing is calculated yet.' },
+                { term: 'Computed', text: 'Payslips exist, and the checks have run. Blockers appear at this point.' },
+                { term: 'Validated', text: 'Every blocker is cleared or deliberately overridden, so it may be paid.' },
+                { term: 'Paid, then Sent', text: 'Paid records the payment. Sent means payslips have been emailed.' },
+                { term: 'Overlaps', text: 'Someone already paid for a period is refused for a second payrun covering it.' },
+              ]}
+            />
+          </HelpPopover>
+        }
+        actions={
+          can('payrun.create') ? (
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => navigate('/payroll/payruns/new')}>
+              New payrun
+            </Button>
+          ) : undefined
+        }
       />
-
-      <div className="mb-4">
-        <SegmentedControl
-          value={state ?? 'ALL'}
-          onChange={(value) => setState(value === 'ALL' ? null : value)}
-          options={[
-            { value: 'ALL', label: 'All' }, { value: 'DRAFT', label: 'Draft' }, { value: 'COMPUTED', label: 'Computed' },
-            { value: 'VALIDATED', label: 'Validated' }, { value: 'PAID', label: 'Paid' }, { value: 'SENT', label: 'Sent' },
-          ]}
-        />
-      </div>
 
       <Card>
         <DataTable
-          rows={query.data?.content ?? []}
-          loading={query.isLoading}
-          onRowClick={(row) => navigate(`/payroll/payruns/${row.id}`)}
-          empty={<EmptyState title="No payruns yet" description="Create the first payrun to generate payslips for a period." />}
-          columns={[
-            { key: 'name', header: 'Payrun', render: (r) => <span className="font-medium">{r.name}</span>, sortValue: (r) => r.periodStart },
-            { key: 'period', header: 'Period', render: (r) => `${fmtDate(r.periodStart)} — ${fmtDate(r.periodEnd)}` },
-            { key: 'structure', header: 'Structure', render: (r) => r.structureName },
-            { key: 'employees', header: 'Employees', align: 'right', render: (r) => num(r.employeeCount) },
-            { key: 'payslips', header: 'Payslips', align: 'right', render: (r) => num(r.payslipCount) },
-            { key: 'net', header: 'Total net', align: 'right', render: (r) => money(r.totalNet, { compact: true }), sortValue: (r) => r.totalNet },
-            {
-              key: 'issues', header: 'Issues',
-              render: (r) => (
-                <span className="flex gap-1.5">
-                  {r.blockerCount ? <Chip tone="bad">{r.blockerCount} blocker{r.blockerCount === 1 ? '' : 's'}</Chip> : null}
-                  {r.warningCount ? <Chip tone="warn">{r.warningCount} warning{r.warningCount === 1 ? '' : 's'}</Chip> : null}
-                  {!r.blockerCount && !r.warningCount ? <span className="text-label2">No warnings</span> : null}
-                </span>
-              ),
-            },
-            { key: 'state', header: 'Status', render: (r) => <StatusBadge status={r.state} /> },
-          ]}
+          rows={list.data?.content ?? []}
+          columns={columns}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          onRowClick={(r) => navigate(`/payroll/payruns/${r.id}`)}
+          toolbar={{
+            search: 'Search payruns by name',
+            filters: (
+              <>
+                <Select value={state} onChange={setState} options={PAYRUN_STATE_OPTIONS} className="w-44" />
+                <StatusLegend statuses={['DRAFT', 'COMPUTED', 'VALIDATED', 'PAID', 'SENT', 'CANCELLED']} />
+              </>
+            ),
+          }}
+          empty={{
+            icon: <Wallet className="h-6 w-6" />,
+            title: 'No payruns yet',
+            description: 'A payrun covers one period for a chosen set of people, and produces their payslips.',
+            action: can('payrun.create') ? (
+              <Button variant="primary" onClick={() => navigate('/payroll/payruns/new')}>Start a payrun</Button>
+            ) : undefined,
+          }}
         />
       </Card>
     </>

@@ -17,8 +17,8 @@ public class WorkingSchedule {
     private BigDecimal weeklyHours = BigDecimal.ZERO;
     @Column(nullable = false)
     private boolean active = true;
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "schedule_id", nullable = false)
+    @OneToMany(mappedBy = "schedule", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OrderBy("dayOfWeek ASC")
     private List<WorkingScheduleLine> lines = new ArrayList<>();
 
     public Long getId() { return id; }
@@ -32,4 +32,10 @@ public class WorkingSchedule {
     public void setActive(boolean v) { this.active = v; }
     public List<WorkingScheduleLine> getLines() { return lines; }
     public void setLines(List<WorkingScheduleLine> v) { this.lines = v; }
+
+    /** Adds a line and sets the back-reference the foreign key is mapped to. */
+    public void addLine(WorkingScheduleLine line) {
+        line.setSchedule(this);
+        lines.add(line);
+    }
 }

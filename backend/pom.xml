@@ -19,6 +19,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- ByteBuddy (via Mockito) needs this on JDK 23+. Shared by Surefire and Failsafe. -->
+        <test.argLine>-Dnet.bytebuddy.experimental=true -XX:+EnableDynamicAgentLoading -Xshare:off</test.argLine>
         <exp4j.version>0.4.8</exp4j.version>
         <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
         <archunit.version>1.3.0</archunit.version>
@@ -139,13 +141,38 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!--
+                Surefire runs the fast suite and needs no database, so `mvn test` stays usable on any
+                machine. Anything named *IT is a Spring Boot integration test against PostgreSQL and
+                runs under Failsafe via `mvn verify -Pit`.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Dnet.bytebuddy.experimental=true -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                    <argLine>${test.argLine}</argLine>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>it</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <argLine>${test.argLine}</argLine>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
