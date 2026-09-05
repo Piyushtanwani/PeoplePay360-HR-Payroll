@@ -16,7 +16,14 @@ public class IdentityDtos {
                              Settings settings, Features features) {}
 
     public record CreateUser(@Email @NotBlank String email, @NotBlank String displayName, String password,
-                             @NotBlank String roleCode, Long employeeId, Boolean active) {}
+                             @NotBlank String roleCode, Long employeeId, Boolean active,
+                             /** Email a set-password link instead of assigning a password here. */
+                             Boolean sendInvite) {}
+    public record CreateUserResult(UserDetail user, boolean inviteSent, String inviteMessage) {}
+    public record SetPasswordRequest(String token, String password) {}
+    /** Employees with no login yet, offered when creating a user. */
+    public record InvitableEmployee(Long employeeId, String employeeNo, String displayName, String workEmail,
+                                    String jobTitle, String departmentName) {}
     public record UpdateUser(String displayName, String password, Long employeeId, Boolean active) {}
     public record RoleAssign(@NotBlank String roleCode) {}
     public record UserDetail(Long id, String email, String displayName, String roleCode, Long employeeId,

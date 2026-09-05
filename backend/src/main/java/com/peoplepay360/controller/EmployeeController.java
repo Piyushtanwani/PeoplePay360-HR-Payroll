@@ -18,6 +18,14 @@ public class EmployeeController {
     @GetMapping("/departments")
     public List<DepartmentDto> departments() { return service.listDepartments(); }
 
+    @PutMapping("/departments/{id}")
+    public DepartmentDto updateDepartment(@PathVariable Long id, @Valid @RequestBody CreateDepartment in) {
+        return service.updateDepartment(id, in);
+    }
+
+    @DeleteMapping("/departments/{id}")
+    public void deleteDepartment(@PathVariable Long id) { service.deleteDepartment(id); }
+
     @PostMapping("/departments")
     public DepartmentDto createDepartment(@Valid @RequestBody CreateDepartment in) {
         return service.createDepartment(in);

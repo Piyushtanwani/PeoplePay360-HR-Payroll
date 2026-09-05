@@ -4,6 +4,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
+    /** Single-tenant display name shown on schedules and payslips. */
+    private String companyName = "OXP Pvt Ltd";
+    public String getCompanyName() { return companyName; }
+    public void setCompanyName(String v) { this.companyName = v; }
+    /** Public base URL of the web app, used to build invite links. */
+    private String appBaseUrl = "http://localhost:5173";
+    public String getAppBaseUrl() { return appBaseUrl; }
+    public void setAppBaseUrl(String v) { this.appBaseUrl = v; }
+    private int inviteTtlHours = 48;
+    public int getInviteTtlHours() { return inviteTtlHours; }
+    public void setInviteTtlHours(int v) { this.inviteTtlHours = v; }
+
+
     private Jwt jwt = new Jwt();
     private Mcp mcp = new Mcp();
     private Chat chat = new Chat();

@@ -60,6 +60,45 @@ public class ProblemDetailsAdvice {
         return base(ErrorCode.ILLEGAL_STATE, "The operation conflicts with the current data state.");
     }
 
+    /**
+     * Malformed requests are the caller's fault, not ours. Without these they fall through
+     * to the generic handler and are reported as 500, which hides real server errors.
+     */
+    @ExceptionHandler({
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.bind.MissingRequestHeaderException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
+            org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.bind.ServletRequestBindingException.class,
+    })
+    public ProblemDetail handleBadRequest(Exception ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setTitle("Bad Request");
+        pd.setDetail(ex.getMessage());
+        pd.setProperty("code", ErrorCode.VALIDATION_ERROR.name());
+        pd.setProperty("requestId", RequestContext.getRequestId());
+        return pd;
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ProblemDetail handleNoResource(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        pd.setTitle("Not Found");
+        pd.setDetail("No endpoint matches this path.");
+        pd.setProperty("code", ErrorCode.NOT_FOUND.name());
+        pd.setProperty("requestId", RequestContext.getRequestId());
+        return pd;
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ProblemDetail handleMethodNotAllowed(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.METHOD_NOT_ALLOWED);
+        pd.setTitle("Method Not Allowed");
+        pd.setDetail(ex.getMessage());
+        pd.setProperty("requestId", RequestContext.getRequestId());
+        return pd;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGeneric(Exception ex) {
         log.error("Unhandled exception [requestId={}]", RequestContext.getRequestId(), ex);

@@ -97,7 +97,13 @@ export function Select<T extends string | number>({
         <Popover.Content
           align="start"
           sideOffset={6}
-          className="z-50 w-[var(--radix-popover-trigger-width)] min-w-[220px] animate-in overflow-hidden rounded-card border border-separator bg-surface shadow-sheet"
+          collisionPadding={12}
+          className={cn(
+            'z-50 w-[var(--radix-popover-trigger-width)] min-w-[220px] animate-in overflow-hidden rounded-card',
+            // The panel often floats over a card of the same colour, so it needs its own
+            // edge and elevation rather than relying on the background alone.
+            'border border-separator bg-surface shadow-sheet ring-1 ring-black/5 dark:ring-white/10',
+          )}
         >
           {searchable ? (
             <div className="flex items-center gap-2 border-b border-separator px-3 py-2">
@@ -111,7 +117,7 @@ export function Select<T extends string | number>({
               />
             </div>
           ) : null}
-          <div className="max-h-64 overflow-y-auto p-1">
+          <div className="max-h-[min(16rem,var(--radix-popover-content-available-height))] overflow-y-auto p-1">
             {loading ? (
               <div className="flex items-center gap-2 px-3 py-6 text-sm2 text-label2">
                 <Spinner /> Loading options…

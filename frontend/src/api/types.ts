@@ -42,6 +42,46 @@ export interface MeResponse {
 
 export interface Department { id: number; name: string; employeeCount: number }
 
+/** An onboarded employee with no login yet, offered when creating a user. */
+export interface InvitableEmployee {
+  employeeId: number
+  employeeNo: string
+  displayName: string
+  workEmail: string | null
+  jobTitle: string | null
+  departmentName: string | null
+}
+export interface CreateUserResult {
+  user: AdminUser
+  inviteSent: boolean
+  inviteMessage: string
+}
+
+/** A salary rule with its owning structure, for the cross-structure Rules list. */
+export interface SalaryRuleRow {
+  id: number
+  structureId: number
+  structureName: string
+  name: string
+  code: string
+  category: 'BASIC' | 'ALLOWANCE' | 'GROSS' | 'DEDUCTION' | 'NET'
+  sequence: number
+  computeType: 'FIXED' | 'PERCENTAGE' | 'FORMULA'
+  fixedAmount: number | null
+  percentage: number | null
+  baseRuleCode: string | null
+  formula: string | null
+  active: boolean
+}
+
+export interface TimeOffOverviewRow {
+  typeName: string
+  approvedDays: number
+  pending: number
+  remainingBalance: number | null
+  requiresAllocation: boolean
+}
+
 export interface EmployeeSummary {
   id: number
   employeeNo: string
@@ -144,6 +184,8 @@ export interface TimeOffAllocation {
   typeId: number
   typeName: string
   days: number
+  taken: number
+  remaining: number
   validFrom: string
   validTo: string | null
   state: AllocationState
@@ -311,6 +353,7 @@ export interface Dashboard {
     manualEdits: number
     coveragePct: number
   }
+  timeOffOverview: TimeOffOverviewRow[]
   departments: { departmentName: string; headcount: number; salarySpend?: number }[]
 }
 

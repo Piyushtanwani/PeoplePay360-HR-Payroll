@@ -287,7 +287,17 @@ public class TimeOffService {
     private AllocationDto toAllocation(TimeOffAllocation a) {
         String emp = employees.findById(a.getEmployeeId()).map(Employee::getDisplayName).orElse(null);
         String tn = types.findById(a.getTypeId()).map(TimeOffType::getName).orElse(null);
+        // Days consumed against this allocation: approved leave of the same type, inside its validity.
+        java.math.BigDecimal taken = requests
+                .findByEmployeeIdAndTypeIdAndState(a.getEmployeeId(), a.getTypeId(), "APPROVED").stream()
+                .filter(r -> a.getValidFrom() == null || !r.getEndDate().isBefore(a.getValidFrom()))
+                .filter(r -> a.getValidTo() == null || !r.getStartDate().isAfter(a.getValidTo()))
+                .map(r -> r.getDays() == null ? java.math.BigDecimal.ZERO : r.getDays())
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        java.math.BigDecimal allocated = a.getDays() == null ? java.math.BigDecimal.ZERO : a.getDays();
+        java.math.BigDecimal remaining = allocated.subtract(taken);
         return new AllocationDto(a.getId(), a.getEmployeeId(), emp, a.getTypeId(), tn, a.getDays(),
+                taken, remaining,
                 a.getValidFrom(), a.getValidTo(), a.getState(), a.getApprovedBy(), a.getApprovedAt(), a.getNote());
     }
     private RequestDto toRequest(TimeOffRequest r) {

@@ -30,16 +30,67 @@ public class DashboardService {
     private final EmployeeRepository employees;
     private final DepartmentRepository departments;
     private final AttendanceRepository attendance;
+    private final com.peoplepay360.repository.TimeOffTypeRepository timeOffTypes;
+    private final com.peoplepay360.repository.TimeOffRequestRepository timeOffRequests;
+    private final com.peoplepay360.repository.TimeOffAllocationRepository timeOffAllocations;
     private final CurrentUser currentUser;
 
     public DashboardService(PayslipRepository payslips, PayrunRepository payruns, EmployeeRepository employees,
-                            DepartmentRepository departments, AttendanceRepository attendance, CurrentUser currentUser) {
+                            DepartmentRepository departments, AttendanceRepository attendance,
+                            com.peoplepay360.repository.TimeOffTypeRepository timeOffTypes,
+                            com.peoplepay360.repository.TimeOffRequestRepository timeOffRequests,
+                            com.peoplepay360.repository.TimeOffAllocationRepository timeOffAllocations,
+                            CurrentUser currentUser) {
         this.payslips = payslips;
         this.payruns = payruns;
         this.employees = employees;
         this.departments = departments;
         this.attendance = attendance;
+        this.timeOffTypes = timeOffTypes;
+        this.timeOffRequests = timeOffRequests;
+        this.timeOffAllocations = timeOffAllocations;
         this.currentUser = currentUser;
+    }
+
+    /**
+     * Per leave type: days approved whose leave falls in the period, requests still pending,
+     * and the balance left (approved allocations minus approved days) for types that need one.
+     */
+    private List<TimeOffRow> timeOffOverview(LocalDate from, LocalDate to) {
+        var requests = timeOffRequests.findAll();
+        var allocations = timeOffAllocations.findAll();
+        List<TimeOffRow> rows = new ArrayList<>();
+        for (var type : timeOffTypes.findAll()) {
+            if (!type.isActive()) continue;
+            BigDecimal approvedInPeriod = requests.stream()
+                    .filter(r -> r.getTypeId().equals(type.getId()))
+                    .filter(r -> "APPROVED".equals(r.getState()))
+                    .filter(r -> !r.getStartDate().isAfter(to) && !r.getEndDate().isBefore(from))
+                    .map(r -> r.getDays() == null ? BigDecimal.ZERO : r.getDays())
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            long pending = requests.stream()
+                    .filter(r -> r.getTypeId().equals(type.getId()))
+                    .filter(r -> "PENDING".equals(r.getState()))
+                    .count();
+            BigDecimal remaining = null;
+            if (type.isRequiresAllocation()) {
+                BigDecimal allocated = allocations.stream()
+                        .filter(a -> a.getTypeId().equals(type.getId()))
+                        .filter(a -> "APPROVED".equals(a.getState()))
+                        .map(a -> a.getDays() == null ? BigDecimal.ZERO : a.getDays())
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal takenAllTime = requests.stream()
+                        .filter(r -> r.getTypeId().equals(type.getId()))
+                        .filter(r -> "APPROVED".equals(r.getState()))
+                        .map(r -> r.getDays() == null ? BigDecimal.ZERO : r.getDays())
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                remaining = Money.scale(allocated.subtract(takenAllTime));
+            }
+            rows.add(new TimeOffRow(type.getName(), Money.scale(approvedInPeriod), pending, remaining,
+                    type.isRequiresAllocation()));
+        }
+        rows.sort(Comparator.comparing(TimeOffRow::typeName));
+        return rows;
     }
 
     @PreAuthorize("hasAuthority('dashboard.read.hr')")
@@ -127,14 +178,19 @@ public class DashboardService {
         if (missing > 0) alerts.add(new Alert("WARNING", "HR", missing + " missing check-outs in the period.",
                 "/attendance/exceptions?type=MISSING_CHECKOUT"));
 
+        List<TimeOffRow> timeOff = timeOffOverview(range[0], range[1]);
+        BigDecimal approvedDays = timeOff.stream()
+                .map(TimeOffRow::approvedDays)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         Kpis kpis = new Kpis(
                 payroll ? Money.scale(totalNet) : null,
                 payroll ? periodSlips.size() : null,
                 payroll ? avg : null,
-                BigDecimal.ZERO,
+                approvedDays,
                 coverage);
 
         return new Dashboard(period, new Filters(departmentId, employeeType), kpis,
-                payroll ? costByDept : null, trend, alerts, overview, deptRows);
+                payroll ? costByDept : null, trend, alerts, overview, timeOff, deptRows);
     }
 }

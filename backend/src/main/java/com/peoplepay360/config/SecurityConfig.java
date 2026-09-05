@@ -35,6 +35,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(a -> a
                 .requestMatchers(
                         "/api/auth/login",
+                        // Reached from an emailed link, before the user has any credentials.
+                        "/api/auth/set-password", "/api/auth/set-password/check",
                         "/.well-known/jwks.json",
                         "/actuator/health", "/actuator/info",
                         "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")

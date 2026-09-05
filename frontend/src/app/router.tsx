@@ -3,9 +3,11 @@ import { AppShell } from './shell/AppShell'
 import { RequireAuth, RequirePermission } from './routes/guards'
 import { RouteError } from './routes/RouteError'
 import { LoginPage } from '@/features/auth/LoginPage'
+import { SetPasswordPage } from '@/features/auth/SetPasswordPage'
 import { HomeRoute } from '@/features/dashboard/HomeRoute'
 import { EmployeesPage } from '@/features/employees/EmployeesPage'
 import { EmployeeDetailPage } from '@/features/employees/EmployeeDetailPage'
+import { DepartmentsPage } from '@/features/employees/DepartmentsPage'
 import { ContractsPage } from '@/features/contracts/ContractsPage'
 import { SchedulesPage } from '@/features/schedules/SchedulesPage'
 import { AttendancePage } from '@/features/attendance/AttendancePage'
@@ -15,6 +17,7 @@ import { PayrunWizardPage } from '@/features/payroll/PayrunWizardPage'
 import { PayrunDetailPage } from '@/features/payroll/PayrunDetailPage'
 import { PayslipsPage } from '@/features/payroll/PayslipsPage'
 import { SalaryStructuresPage } from '@/features/payroll/SalaryStructuresPage'
+import { SalaryRulesPage } from '@/features/payroll/SalaryRulesPage'
 import { UsersPage } from '@/features/admin/UsersPage'
 import { AiSettingsPage } from '@/features/admin/AiSettingsPage'
 import { AuditPage } from '@/features/admin/AuditPage'
@@ -28,6 +31,7 @@ const gate = (permission: string | string[], element: JSX.Element) => (
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
+  { path: '/set-password', element: <SetPasswordPage />, errorElement: <RouteError /> },
   {
     path: '/',
     element: (
@@ -40,6 +44,7 @@ export const router = createBrowserRouter([
       { index: true, element: <HomeRoute /> },
       { path: 'employees', element: gate('employee.read.all', <EmployeesPage />) },
       { path: 'employees/:id', element: gate(['employee.read.own', 'employee.read.all'], <EmployeeDetailPage />) },
+      { path: 'departments', element: gate('employee.read.all', <DepartmentsPage />) },
       { path: 'contracts', element: gate(['contract.read.own', 'contract.read.all'], <ContractsPage />) },
       { path: 'schedules', element: gate('schedule.read.all', <SchedulesPage />) },
       { path: 'attendance', element: gate(['attendance.read.own', 'attendance.read.all'], <AttendancePage />) },
@@ -49,6 +54,7 @@ export const router = createBrowserRouter([
       { path: 'payroll/payruns/:id', element: gate('payrun.read', <PayrunDetailPage />) },
       { path: 'payroll/payslips', element: gate(['payslip.read.own', 'payslip.read.all'], <PayslipsPage />) },
       { path: 'payroll/salary-structures', element: gate('salary_structure.read', <SalaryStructuresPage />) },
+      { path: 'payroll/salary-rules', element: gate('salary_rule.read', <SalaryRulesPage />) },
       { path: 'assistant', element: gate('chat.access', <AssistantPage />) },
       { path: 'admin/users', element: gate('user.read', <UsersPage />) },
       { path: 'admin/ai', element: gate('ai.settings', <AiSettingsPage />) },

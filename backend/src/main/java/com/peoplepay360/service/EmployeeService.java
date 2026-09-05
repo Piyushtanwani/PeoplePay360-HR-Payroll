@@ -177,10 +177,39 @@ public class EmployeeService {
     @PreAuthorize("hasAuthority('employee.update.all')")
     @Transactional
     public DepartmentDto createDepartment(CreateDepartment in) {
+        departments.findAll().stream()
+                .filter(d -> d.getName().equalsIgnoreCase(in.name()))
+                .findFirst()
+                .ifPresent(d -> { throw ApiException.conflict("A department with that name already exists."); });
         Department d = new Department();
         d.setName(in.name());
         d = departments.save(d);
         return new DepartmentDto(d.getId(), d.getName(), 0);
+    }
+
+    @PreAuthorize("hasAuthority('employee.update.all')")
+    @Transactional
+    public DepartmentDto updateDepartment(Long id, CreateDepartment in) {
+        Department d = departments.findById(id).orElseThrow(() -> ApiException.notFound("department"));
+        departments.findAll().stream()
+                .filter(other -> !other.getId().equals(id) && other.getName().equalsIgnoreCase(in.name()))
+                .findFirst()
+                .ifPresent(other -> { throw ApiException.conflict("A department with that name already exists."); });
+        d.setName(in.name());
+        d = departments.save(d);
+        return new DepartmentDto(d.getId(), d.getName(), employees.countByDepartmentIdAndActiveTrue(d.getId()));
+    }
+
+    /** A department in use would orphan employee records, so deletion is blocked while staffed. */
+    @PreAuthorize("hasAuthority('employee.delete.all')")
+    @Transactional
+    public void deleteDepartment(Long id) {
+        departments.findById(id).orElseThrow(() -> ApiException.notFound("department"));
+        long staffed = employees.countByDepartmentIdAndActiveTrue(id);
+        if (staffed > 0) {
+            throw ApiException.conflict("Move the " + staffed + " employee(s) in this department first.");
+        }
+        departments.deleteById(id);
     }
 
     // ----- mapping -----

@@ -15,7 +15,10 @@ import com.peoplepay360.repository.WorkingScheduleRepository;
 public class ScheduleCrudService {
     private final WorkingScheduleRepository repo;
     private final ScheduleService scheduleService;
-    public ScheduleCrudService(WorkingScheduleRepository repo, ScheduleService scheduleService) {
+    private final com.peoplepay360.config.AppProperties props;
+    public ScheduleCrudService(WorkingScheduleRepository repo, ScheduleService scheduleService,
+                               com.peoplepay360.config.AppProperties props) {
+        this.props = props;
         this.repo = repo;
         this.scheduleService = scheduleService;
     }
@@ -54,6 +57,7 @@ public class ScheduleCrudService {
     private ScheduleDto save(WorkingSchedule s, SaveSchedule in) {
         s.setName(in.name());
         s.setType(in.type() == null ? "FIXED" : in.type());
+        if (in.active() != null) s.setActive(in.active());
         if (in.lines() != null) {
             for (LineDto l : in.lines()) {
                 WorkingScheduleLine line = new WorkingScheduleLine();
@@ -77,6 +81,7 @@ public class ScheduleCrudService {
         List<LineDto> lines = s.getLines().stream()
                 .map(l -> new LineDto(l.getDayOfWeek(), l.getStartTime(), l.getEndTime(), l.getBreakMinutes()))
                 .toList();
-        return new ScheduleDto(s.getId(), s.getName(), s.getType(), s.getWeeklyHours(), lines);
+        return new ScheduleDto(s.getId(), s.getName(), s.getType(), s.getWeeklyHours(), s.isActive(),
+                props.getCompanyName(), lines);
     }
 }

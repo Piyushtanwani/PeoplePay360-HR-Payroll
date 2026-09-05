@@ -289,6 +289,7 @@ for (const e of employees) {
     allocations.push({
       id: ++allocationId, employeeId: e.id, employeeName: e.displayName, typeId: type.id, typeName: type.name,
       days: isSamAnnual ? 10 : type.id === 1 ? 20 : 8,
+      taken: 0, remaining: isSamAnnual ? 10 : type.id === 1 ? 20 : 8,
       validFrom: '2026-01-01', validTo: '2026-12-31',
       state: isSamAnnual ? 'DRAFT' : 'APPROVED',
       approvedBy: isSamAnnual ? null : 'Morgan Diaz', approvedAt: isSamAnnual ? null : '2026-01-02T04:30:00Z',
@@ -608,6 +609,7 @@ export function buildDashboard(period: string, opts: { payroll: boolean; departm
     kpis: { approvedTimeOffDays, attendanceHealthPct: coveragePct },
     alerts,
     attendanceOverview: { ...counts, coveragePct },
+    timeOffOverview: [],
     departments: byDepartment.map((d) => ({ departmentName: d.departmentName, headcount: d.headcount })),
   }
 

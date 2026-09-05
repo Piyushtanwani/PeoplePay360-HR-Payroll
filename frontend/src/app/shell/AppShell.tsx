@@ -2,15 +2,16 @@ import * as React from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Banknote, Building2, CalendarClock, ClipboardList, Command, FileSpreadsheet, Gauge, LayoutGrid,
-  LogOut, Moon, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText, Settings, ShieldCheck, Sun,
-  Timer, Users, Wallet, Bell, HeartPulse, Cpu, Menu, X, Sparkles,
+  Moon, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText, ShieldCheck, Sun,
+  Timer, Users, Wallet, Bell, HeartPulse, Cpu, Menu, X, Sparkles, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/auth/AuthProvider'
-import { Avatar, Button, Chip, Tooltip } from '@/components/ui'
+import { Button, Tooltip } from '@/components/ui'
 import { applyTheme, readTheme, type Theme } from '../theme'
 import { CommandPalette } from './CommandPalette'
 import { NotificationBell } from './NotificationBell'
+import { ProfileMenu } from './ProfileMenu'
 
 export interface NavItem { to: string; label: string; icon: React.ReactNode; permission?: string | string[] }
 export interface NavGroup { label: string; items: NavItem[] }
@@ -21,6 +22,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'People',
     items: [
       { to: '/employees', label: 'Employees', icon: <Users className="h-4 w-4" />, permission: 'employee.read.all' },
+      { to: '/departments', label: 'Departments', icon: <Building2 className="h-4 w-4" />, permission: 'employee.read.all' },
       { to: '/contracts', label: 'Contracts', icon: <ClipboardList className="h-4 w-4" />, permission: 'contract.read.own' },
       { to: '/schedules', label: 'Working Schedules', icon: <CalendarClock className="h-4 w-4" />, permission: 'schedule.read.all' },
     ],
@@ -38,6 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/payroll/payruns', label: 'Payruns', icon: <Wallet className="h-4 w-4" />, permission: 'payrun.read' },
       { to: '/payroll/payslips', label: 'Payslips', icon: <Receipt className="h-4 w-4" />, permission: ['payslip.read.own', 'payslip.read.all'] },
       { to: '/payroll/salary-structures', label: 'Salary Structures', icon: <FileSpreadsheet className="h-4 w-4" />, permission: 'salary_structure.read' },
+      { to: '/payroll/salary-rules', label: 'Salary Rules', icon: <ScrollText className="h-4 w-4" />, permission: 'salary_rule.read' },
     ],
   },
   {
@@ -60,7 +63,8 @@ export const NAV_GROUPS: NavGroup[] = [
 const CRUMBS: Record<string, string> = {
   '/': 'Dashboard', '/employees': 'Employees', '/contracts': 'Contracts', '/schedules': 'Working Schedules',
   '/attendance': 'Attendance', '/timeoff': 'Time Off', '/payroll/payruns': 'Payruns', '/payroll/payslips': 'Payslips',
-  '/payroll/salary-structures': 'Salary Structures', '/assistant': 'Assistant',
+  '/departments': 'Departments', '/payroll/salary-structures': 'Salary Structures',
+  '/payroll/salary-rules': 'Salary Rules', '/assistant': 'Assistant',
   '/admin/users': 'Users & Access', '/admin/ai': 'AI Settings',
   '/admin/audit': 'Audit Log', '/admin/health': 'Health', '/settings': 'Settings',
 }
@@ -69,7 +73,7 @@ const CRUMBS: Record<string, string> = {
 const FULL_BLEED = new Set(['/assistant'])
 
 export function AppShell() {
-  const { me, logout, canAny } = useAuth()
+  const { me, canAny } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = React.useState(() => localStorage.getItem('pp360.sidebar') === 'rail')
@@ -172,10 +176,11 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="subtle" onClick={() => setPaletteOpen(true)} className="hidden gap-2 sm:inline-flex">
-              <Command className="h-3.5 w-3.5" /> Search
-              <kbd className="rounded bg-surface px-1 text-xs2 text-label2">⌘K</kbd>
-            </Button>
+            <Tooltip content="Search  ⌘K">
+              <Button size="sm" variant="ghost" aria-label="Search" onClick={() => setPaletteOpen(true)} className="h-8 w-8 p-0">
+                <Search className="h-4 w-4" />
+              </Button>
+            </Tooltip>
             <NotificationBell />
             <Tooltip content={`Theme: ${theme}`}>
               <Button size="sm" variant="ghost" aria-label="Toggle theme" onClick={cycleTheme} className="h-8 w-8 p-0">
@@ -183,18 +188,7 @@ export function AppShell() {
                 {theme === 'system' ? <Sun className="h-4 w-4 opacity-60" /> : null}
               </Button>
             </Tooltip>
-            <div className="ml-1 flex items-center gap-2 rounded-full border border-separator bg-surface py-1 pl-1 pr-3">
-              <Avatar name={me?.user.displayName ?? ''} color={me?.employee?.avatarColor} size={26} />
-              <div className="hidden leading-tight sm:block">
-                <p className="text-xs2 font-semibold">{me?.user.displayName}</p>
-                <p className="text-xs2 text-label2">{me?.user.roleCode.replace(/_/g, ' ').toLowerCase()}</p>
-              </div>
-              <Tooltip content="Sign out">
-                <button aria-label="Sign out" onClick={logout} className="text-label2 hover:text-bad">
-                  <LogOut className="h-3.5 w-3.5" />
-                </button>
-              </Tooltip>
-            </div>
+            <ProfileMenu />
           </div>
         </header>
 

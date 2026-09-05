@@ -24,4 +24,7 @@ public class ApiException extends RuntimeException {
     public static ApiException illegalState(String msg) {
         return new ApiException(ErrorCode.ILLEGAL_STATE, msg);
     }
+    public static ApiException conflict(String msg) {
+        return new ApiException(ErrorCode.DUPLICATE, msg);
+    }
 }

@@ -211,6 +211,7 @@ export const timeHandlers = [
       const allocation: TimeOffAllocation = {
         id: nextId(db.allocations), employeeId: employee.id, employeeName: employee.displayName,
         typeId: type.id, typeName: type.name, days: Number(body.days ?? 0),
+        taken: 0, remaining: Number(body.days ?? 0),
         validFrom: body.validFrom ?? db.isoDate(db.TODAY), validTo: body.validTo ?? null,
         state: 'DRAFT', approvedBy: null, approvedAt: null, note: body.note ?? null,
       }

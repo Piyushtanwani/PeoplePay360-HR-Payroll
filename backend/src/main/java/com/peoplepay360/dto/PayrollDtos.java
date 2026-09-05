@@ -13,6 +13,10 @@ public class PayrollDtos {
     public record SalaryStructureDto(Long id, String name, String code, boolean active, int ruleCount,
                                      long employeeCount, List<SalaryRuleDto> rules) {}
     public record SalaryStructureName(Long id, String name) {}
+    /** A rule with its owning structure, for the cross-structure Salary Rules list. */
+    public record SalaryRuleRow(Long id, Long structureId, String structureName, String name, String code,
+                                String category, int sequence, String computeType, BigDecimal fixedAmount,
+                                BigDecimal percentage, String baseRuleCode, String formula, boolean active) {}
     public record SaveStructure(String name, String code, Boolean active) {}
     public record SaveRule(String name, String code, String category, Integer sequence, String computeType,
                            BigDecimal fixedAmount, BigDecimal percentage, String baseRuleCode, String formula,
