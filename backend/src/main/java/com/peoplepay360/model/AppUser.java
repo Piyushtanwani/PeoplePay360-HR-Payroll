@@ -25,6 +25,9 @@ public class AppUser {
     private boolean breakGlass = false;
     @Column(name = "created_at")
     private OffsetDateTime createdAt = OffsetDateTime.now();
+    /** Null until the set-password link is redeemed for the first time; never cleared after that. */
+    @Column(name = "password_set_at")
+    private OffsetDateTime passwordSetAt;
 
     public Long getId() { return id; }
     public String getEmail() { return email; }
@@ -44,4 +47,6 @@ public class AppUser {
     public boolean isBreakGlass() { return breakGlass; }
     public void setBreakGlass(boolean v) { this.breakGlass = v; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getPasswordSetAt() { return passwordSetAt; }
+    public void setPasswordSetAt(OffsetDateTime v) { this.passwordSetAt = v; }
 }

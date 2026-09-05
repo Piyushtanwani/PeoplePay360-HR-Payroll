@@ -127,6 +127,8 @@ public class AdminUserService {
         audit.record(Channel.UI, "CREATE_USER", "user", u.getId().toString(), "ALLOW", null, null, null);
 
         if (!invite) {
+            u.setPasswordSetAt(java.time.OffsetDateTime.now());
+            u = users.save(u);
             return new CreateUserResult(toDetail(u), false, "Password set manually.");
         }
         String token = invites.mint(u.getId(), "INVITE", props.getInviteTtlHours());
@@ -243,7 +245,7 @@ public class AdminUserService {
     private UserDetail toDetail(AppUser u) {
         int gc = grants.findByUserIdOrderByGrantedAtDesc(u.getId()).size();
         return new UserDetail(u.getId(), u.getEmail(), u.getDisplayName(), u.getRole().getCode(),
-                u.getEmployeeId(), u.isActive(), gc);
+                u.getEmployeeId(), u.isActive(), gc, u.getPasswordSetAt());
     }
     GrantDto toGrant(UserPermissionGrant g) {
         boolean active = g.getRevokedAt() == null &&

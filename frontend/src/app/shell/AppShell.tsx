@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Building2, CalendarClock, ClipboardList, FileSpreadsheet, Gauge, LayoutGrid,
   Moon, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText, ShieldCheck, Sun,
@@ -119,12 +119,16 @@ export function AppShell() {
           collapsed ? 'w-[72px]' : 'w-[260px]',
         )}
       >
-        <div className={cn('flex h-14 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
+        <Link
+          to="/"
+          aria-label="Go to my dashboard"
+          className={cn('flex h-14 items-center gap-2 px-4', collapsed && 'justify-center px-0')}
+        >
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-accent text-white">
             <Building2 className="h-4 w-4" />
           </span>
           {!collapsed ? <span className="truncate text-[15px] font-semibold">PeoplePay360</span> : null}
-        </div>
+        </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 pb-4">
           {groups.map((group) => (
@@ -172,7 +176,9 @@ export function AppShell() {
             >
               <Menu className="h-4 w-4" />
             </button>
-            <span className="hidden sm:inline">PeoplePay360</span>
+            <Link to="/" aria-label="Go to my dashboard" className="hidden hover:text-label sm:inline">
+              PeoplePay360
+            </Link>
             <span className="hidden sm:inline">/</span>
             <span className="truncate font-medium text-label">{crumb}</span>
           </div>
@@ -230,12 +236,17 @@ export function AppShell() {
         )}
       >
         <div className="flex h-14 items-center justify-between px-4">
-          <span className="flex items-center gap-2">
+          <Link
+            to="/"
+            aria-label="Go to my dashboard"
+            onClick={() => setMobileNav(false)}
+            className="flex items-center gap-2"
+          >
             <span className="grid h-8 w-8 place-items-center rounded-[9px] bg-accent text-white">
               <Building2 className="h-4 w-4" />
             </span>
             <span className="text-[15px] font-semibold">PeoplePay360</span>
-          </span>
+          </Link>
           <button aria-label="Close navigation" onClick={() => setMobileNav(false)} className="text-label2">
             <X className="h-4 w-4" />
           </button>

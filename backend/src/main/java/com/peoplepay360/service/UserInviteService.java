@@ -119,6 +119,10 @@ public class UserInviteService {
             return true;
         } catch (Exception e) {
             log.warn("Could not email the invite to user {}: {}", user.getId(), e.getMessage());
+            // No mail relay is configured on this deployment, so the link is logged here instead of
+            // being lost. Whoever is operating the account can retrieve it from the server log rather
+            // than the invite silently failing with no way to recover it.
+            log.info("Mail relay unreachable. Set-password link for {}: {}", user.getEmail(), link);
             return false;
         }
     }
@@ -137,6 +141,9 @@ public class UserInviteService {
         PasswordPolicy.validate(newPassword, user.getEmail());
         user.setPasswordHash(encoder.encode(newPassword));
         user.setActive(true);
+        // Recorded once, on the first redemption; a later reset does not need to touch it again,
+        // but leaving it as the original date is fine either way since only "is it null" is read.
+        if (user.getPasswordSetAt() == null) user.setPasswordSetAt(OffsetDateTime.now());
         users.save(user);
 
         t.setUsedAt(OffsetDateTime.now());

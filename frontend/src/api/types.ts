@@ -502,7 +502,8 @@ export interface PermissionCatalogItem {
 export interface AdminUser extends UserSummary {
   employeeName: string | null
   grantCount: number
-  lastActiveAt: string | null
+  /** Null while the invite link has not been redeemed. */
+  passwordSetAt: string | null
 }
 
 export interface AuditEvent {
