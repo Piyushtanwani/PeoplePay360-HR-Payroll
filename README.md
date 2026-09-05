@@ -248,8 +248,17 @@ Everything reads from environment variables with development defaults, so the ap
 | `INVITE_TTL_HOURS` | `48` | Invite link lifetime |
 | `MAIL_HOST` / `MAIL_PORT` | `localhost` / `1025` | SMTP endpoint |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | empty | SMTP credentials |
-| `MAIL_AUTH` / `MAIL_STARTTLS` | `false` | Enable both for a real relay |
-| `MAIL_FROM` | `payroll@peoplepay360.local` | Sender address |
+| `MAIL_AUTH` / `MAIL_STARTTLS` | `false` | Enable both for a relay on port 587 |
+| `MAIL_SSL` | `false` | Implicit TLS instead of STARTTLS; use with port 465 |
+| `MAIL_FROM` | `payroll@peoplepay360.local` | Sender address. A real relay needs a routable domain |
+
+**Gmail relay.** Enable 2-Step Verification on the sending account, then create an App Password
+under *Account > Security > App passwords*; the account login password will not authenticate.
+Set `MAIL_HOST=smtp.gmail.com`, `MAIL_PORT=587`, `MAIL_AUTH=true`, `MAIL_STARTTLS=true`, and put
+the 16-character app password in `MAIL_PASSWORD` with the display spaces removed. Gmail rewrites
+the From header to the authenticated mailbox, so set `MAIL_FROM` to the same address as
+`MAIL_USERNAME`. Consumer accounts cap at roughly 500 recipients per day, which a full payrun
+can exceed.
 
 > [!CAUTION]
 > Never commit credentials. Keep local secrets in `backend/.env.local`, which is git-ignored, and

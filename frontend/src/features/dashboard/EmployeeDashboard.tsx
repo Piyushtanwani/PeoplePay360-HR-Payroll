@@ -6,16 +6,15 @@ import {
   Skeleton, StatusBadge,
 } from '@/components/ui'
 import { fmtDate, fmtRange, money, num } from '@/lib/format'
-import { QuickAction } from '../attendance/QuickAction'
 import { LeaveBalanceCards } from '../employees/LeaveBalanceCards'
 
 /**
  * An employee's home screen.
  *
  * Employees hold no dashboard permission, so the HR dashboard is a refusal for them and they used to
- * be redirected to the attendance page instead. This shows the four things they actually come here
- * for: whether they are checked in, how much leave they have, what they were last paid, and what is
- * coming up.
+ * be redirected to the attendance page instead. This shows the three things they actually come here
+ * for: how much leave they have, what they were last paid, and what is coming up. Check-in lives on
+ * the attendance page.
  */
 export function EmployeeDashboard() {
   const dashboard = useMyDashboard()
@@ -51,7 +50,6 @@ export function EmployeeDashboard() {
           <HelpPopover title="What is on this page">
             <HelpItems
               items={[
-                { term: 'Today', text: 'Check in when you start and out when you finish. An entry left open counts as no worked time.' },
                 { term: 'Leave balance', text: 'Available is what you can take now. Projected assumes every pending request is approved.' },
                 { term: 'Payslips', text: 'Your last three. Open one to see exactly how the amount was reached.' },
                 { term: 'Your contract', text: 'What payroll reads for you. The wage itself is on the Contracts page.' },
@@ -63,8 +61,6 @@ export function EmployeeDashboard() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="space-y-4">
-          <QuickAction />
-
           <div className="grid gap-3 sm:grid-cols-2">
             <KpiCard
               label="Days worked this month"
