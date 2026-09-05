@@ -35,3 +35,9 @@ mcp/htmlcov/
 .idea/
 .vscode/
 *.iml
+
+
+# Docs
+/Documents
+
+/.gitignore
