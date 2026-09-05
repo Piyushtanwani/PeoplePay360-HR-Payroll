@@ -1,0 +1,37 @@
+# Local documentation and build prompts (kept out of version control by team decision)
+docs/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+keys/
+*.pem
+
+# Java / Maven
+backend/target/
+*.class
+*.log
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# Python
+mcp/.venv/
+mcp/__pycache__/
+**/__pycache__/
+*.pyc
+mcp/.pytest_cache/
+mcp/.mypy_cache/
+mcp/.ruff_cache/
+mcp/htmlcov/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.iml
