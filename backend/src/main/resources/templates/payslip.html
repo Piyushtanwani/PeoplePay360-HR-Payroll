@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    body { font-family: sans-serif; color: #1d1d1f; font-size: 12px; }
+    h1 { font-size: 20px; margin-bottom: 2px; }
+    .muted { color: #6e6e73; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e5e7; }
+    td.amount, th.amount { text-align: right; }
+    .totals td { font-weight: bold; border-top: 2px solid #1d1d1f; }
+    .header { display: flex; justify-content: space-between; }
+    .cat { color: #6e6e73; text-transform: uppercase; font-size: 10px; }
+    .footer { margin-top: 24px; font-size: 10px; color: #6e6e73; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>PeoplePay360</h1>
+      <div class="muted">Payslip</div>
+    </div>
+    <div style="text-align:right">
+      <div th:text="${employeeName}">Name</div>
+      <div class="muted" th:text="${employeeNo}">E-1001</div>
+      <div class="muted" th:text="${period}">Period</div>
+    </div>
+  </div>
+
+  <table>
+    <tr><td>Worked days</td><td class="amount" th:text="${workedDays}">0</td></tr>
+    <tr><td>Scheduled days</td><td class="amount" th:text="${scheduledDays}">0</td></tr>
+    <tr><td>Unpaid days</td><td class="amount" th:text="${unpaidDays}">0</td></tr>
+  </table>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Category</th><th class="amount">Amount</th></tr></thead>
+    <tbody>
+      <tr th:each="line : ${lines}">
+        <td th:text="${line.ruleName()}">Rule</td>
+        <td class="cat" th:text="${line.category()}">CAT</td>
+        <td class="amount" th:text="${#numbers.formatDecimal(line.amount(), 1, 2)}">0.00</td>
+      </tr>
+    </tbody>
+    <tbody class="totals">
+      <tr><td>Gross</td><td></td><td class="amount" th:text="${#numbers.formatDecimal(gross, 1, 2)}">0.00</td></tr>
+      <tr><td>Deductions</td><td></td><td class="amount" th:text="${#numbers.formatDecimal(deductions, 1, 2)}">0.00</td></tr>
+      <tr><td>Net</td><td></td><td class="amount" th:text="${#numbers.formatDecimal(net, 1, 2)}">0.00</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <div th:text="'Payslip #' + ${payslipId}">Payslip #</div>
+    <div th:text="'Document hash: ' + ${hash}">hash</div>
+  </div>
+</body>
+</html>
