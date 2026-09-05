@@ -74,6 +74,12 @@ export function LoginPage() {
               <TextInput id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••••" required />
             </Field>
 
+            <div className="-mt-2 text-right">
+              <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm2 font-medium text-accent hover:underline">
+                Forgot password?
+              </button>
+            </div>
+
             {!error && expired ? <Callout tone="warn">Your session expired. Sign in again.</Callout> : null}
             {error ? <Callout tone="bad">{error}</Callout> : null}
 

@@ -1,6 +1,7 @@
 package com.peoplepay360.service;
 
 import com.peoplepay360.common.ApiException;
+import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
 import com.peoplepay360.config.AppProperties;
@@ -8,6 +9,7 @@ import com.peoplepay360.model.AppUser;
 import com.peoplepay360.model.PasswordSetupToken;
 import com.peoplepay360.repository.AppUserRepository;
 import com.peoplepay360.repository.PasswordSetupTokenRepository;
+import com.peoplepay360.security.PasswordResetRateLimiter;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -36,15 +38,18 @@ public class UserInviteService {
     private final JavaMailSender mailSender;
     private final AppProperties props;
     private final AuditService audit;
+    private final PasswordResetRateLimiter resetLimiter;
 
     public UserInviteService(PasswordSetupTokenRepository tokens, AppUserRepository users, PasswordEncoder encoder,
-                             JavaMailSender mailSender, AppProperties props, AuditService audit) {
+                             JavaMailSender mailSender, AppProperties props, AuditService audit,
+                             PasswordResetRateLimiter resetLimiter) {
         this.tokens = tokens;
         this.users = users;
         this.encoder = encoder;
         this.mailSender = mailSender;
         this.props = props;
         this.audit = audit;
+        this.resetLimiter = resetLimiter;
     }
 
     private static String hash(String raw) {
@@ -137,6 +142,21 @@ public class UserInviteService {
         tokens.save(t);
         audit.record(Channel.SYSTEM, "PASSWORD_SET", "user", user.getId().toString(), "ALLOW",
                 t.getPurpose(), null, null);
+    }
+
+    /**
+     * Self-service reset entry point. Public endpoint: never reveal whether the email matched an account,
+     * so success and "no such account" both return silently and only the rate limit can reject the call.
+     */
+    @Transactional
+    public void requestPasswordReset(String email, String ip) {
+        if (!resetLimiter.tryConsume(email, ip == null ? "unknown" : ip)) {
+            throw new ApiException(ErrorCode.RATE_LIMITED, "Too many requests. Please wait and try again.");
+        }
+        users.findByEmailIgnoreCase(email).filter(AppUser::isActive).ifPresent(user -> {
+            String token = mint(user.getId(), "PASSWORD_RESET", props.getInviteTtlHours());
+            sendInvite(user, token, true);
+        });
     }
 
     /** Whether a token is still redeemable, so the page can show a clear message before asking for input. */
