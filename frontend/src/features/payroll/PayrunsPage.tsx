@@ -13,7 +13,7 @@ export function PayrunsPage() {
   const { can } = useAuth()
   const [state, setState] = React.useState<string | null>(null)
 
-  const query = useQuery({ queryKey: ['payruns', state], queryFn: () => api.get<Page<Payrun>>('/api/payruns', { state, size: 100 }) })
+  const query = useQuery({ queryKey: ['payruns', state], queryFn: () => api.page<Payrun>('/api/payruns', { state, size: 100 }) })
 
   return (
     <>

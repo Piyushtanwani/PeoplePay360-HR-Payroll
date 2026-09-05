@@ -115,9 +115,20 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+export interface PageLike<T> { content: T[]; page: number; size: number; totalElements: number; totalPages: number }
+
+/** Several backend list endpoints return a bare array rather than a page envelope. */
+export function toPage<T>(data: T[] | PageLike<T> | undefined | null): PageLike<T> {
+  if (Array.isArray(data)) return { content: data, page: 0, size: data.length, totalElements: data.length, totalPages: 1 }
+  if (!data) return { content: [], page: 0, size: 0, totalElements: 0, totalPages: 0 }
+  return data
+}
+
 export const api = {
   get: <T>(path: string, query?: RequestOptions['query'], headers?: Record<string, string>) =>
     request<T>(path, { method: 'GET', query, headers }),
+  page: <T>(path: string, query?: RequestOptions['query']) =>
+    request<T[] | PageLike<T>>(path, { method: 'GET', query }).then((data) => toPage<T>(data)),
   post: <T>(path: string, body?: unknown, query?: RequestOptions['query']) =>
     request<T>(path, { method: 'POST', body, query }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),

@@ -73,7 +73,7 @@ function RequestsTab() {
 
   const query = useQuery({
     queryKey: ['timeoff', 'requests', state, typeId, departmentId],
-    queryFn: () => api.get<Page<TimeOffRequest>>('/api/timeoff/requests', { state, typeId, departmentId, size: 200 }),
+    queryFn: () => api.page<TimeOffRequest>('/api/timeoff/requests', { state, typeId, departmentId, size: 200 }),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['timeoff'] })
@@ -264,7 +264,7 @@ function AllocationsTab() {
   const employees = useEmployeeOptions(can('timeoff_allocation.read.all'))
   const [creating, setCreating] = React.useState(false)
 
-  const query = useQuery({ queryKey: ['timeoff', 'allocations'], queryFn: () => api.get<Page<TimeOffAllocation>>('/api/timeoff/allocations', { size: 200 }) })
+  const query = useQuery({ queryKey: ['timeoff', 'allocations'], queryFn: () => api.page<TimeOffAllocation>('/api/timeoff/allocations', { size: 200 }) })
 
   const decide = useMutation({
     mutationFn: ({ id, action }: { id: number; action: 'approve' | 'refuse' }) => api.post(`/api/timeoff/allocations/${id}/${action}`),

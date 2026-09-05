@@ -28,6 +28,6 @@ export function useEmployeeOptions(enabled = true) {
     queryKey: ['employees', 'options'],
     enabled,
     staleTime: 120_000,
-    queryFn: () => api.get<Page<EmployeeSummary>>('/api/employees', { size: 200 }),
+    queryFn: () => api.page<EmployeeSummary>('/api/employees', { size: 200 }),
   })
 }

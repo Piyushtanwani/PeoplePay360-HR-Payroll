@@ -38,7 +38,7 @@ export function PayrunDetailPage() {
   const [addingInput, setAddingInput] = React.useState(false)
 
   const payrun = useQuery({ queryKey: ['payrun', payrunId], queryFn: () => api.get<Payrun>(`/api/payruns/${payrunId}`) })
-  const payslips = useQuery({ queryKey: ['payslips', 'payrun', payrunId], queryFn: () => api.get<Page<Payslip>>('/api/payslips', { payrunId, size: 200 }) })
+  const payslips = useQuery({ queryKey: ['payslips', 'payrun', payrunId], queryFn: () => api.page<Payslip>('/api/payslips', { payrunId, size: 200 }) })
   const issues = useQuery({ queryKey: ['payrun', payrunId, 'issues'], queryFn: () => api.get<PayrunIssue[]>(`/api/payruns/${payrunId}/issues`) })
 
   const run = payrun.data

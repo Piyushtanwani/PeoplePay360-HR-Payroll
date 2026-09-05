@@ -3,8 +3,35 @@ import { api } from '@/api/client'
 import { Card, PageHeader, StatusBadge } from '@/components/ui'
 import type { HealthCard } from '@/api/types'
 
+interface BackendHealth {
+  db: boolean
+  mail: boolean
+  mcp: { reachable: boolean; version: string }
+  ai: { profile: string; lastTestOk: boolean }
+}
+
+function toCards(h: BackendHealth): HealthCard[] {
+  return [
+    { name: 'Database', status: h.db ? 'UP' : 'DOWN', detail: h.db ? 'PostgreSQL reachable' : 'PostgreSQL unreachable', latencyMs: null },
+    { name: 'Mail', status: h.mail ? 'UP' : 'DOWN', detail: h.mail ? 'SMTP transport configured' : 'SMTP transport unavailable', latencyMs: null },
+    {
+      name: 'MCP service', status: h.mcp.reachable ? 'UP' : 'DEGRADED',
+      detail: h.mcp.reachable ? `Version ${h.mcp.version}` : 'Not reachable. Chat tools are unavailable until it starts.', latencyMs: null,
+    },
+    {
+      name: 'AI provider', status: h.ai.lastTestOk ? 'UP' : 'DEGRADED',
+      detail: h.ai.profile === 'none' ? 'No default profile configured' : `Profile ${h.ai.profile}${h.ai.lastTestOk ? '' : '. Last connection test failed'}`,
+      latencyMs: null,
+    },
+  ]
+}
+
 export function HealthPage() {
-  const query = useQuery({ queryKey: ['admin', 'health'], queryFn: () => api.get<HealthCard[]>('/api/admin/health'), refetchInterval: 20_000 })
+  const query = useQuery({
+    queryKey: ['admin', 'health'],
+    queryFn: () => api.get<BackendHealth>('/api/admin/health').then(toCards),
+    refetchInterval: 20_000,
+  })
 
   return (
     <>
@@ -21,10 +48,6 @@ export function HealthPage() {
           </Card>
         ))}
       </div>
-      <p className="mt-4 text-sm2 text-label2">
-        This build runs against an in-browser mock of the REST contract. Point <span className="font-mono">VITE_USE_MOCKS=false</span> at the
-        Spring Boot backend to switch to live data.
-      </p>
     </>
   )
 }

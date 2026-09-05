@@ -15,12 +15,12 @@ export function NotificationBell() {
   const requests = useQuery({
     queryKey: ['notifications', 'timeoff'],
     enabled: canSeeRequests,
-    queryFn: () => api.get<Page<TimeOffRequest>>('/api/timeoff/requests', { state: 'PENDING', size: 50 }),
+    queryFn: () => api.page<TimeOffRequest>('/api/timeoff/requests', { state: 'PENDING', size: 50 }),
   })
   const payruns = useQuery({
     queryKey: ['notifications', 'payruns'],
     enabled: canSeePayruns,
-    queryFn: () => api.get<Page<Payrun>>('/api/payruns', { size: 50 }),
+    queryFn: () => api.page<Payrun>('/api/payruns', { size: 50 }),
   })
 
   const pendingApprovals = requests.data?.totalElements ?? 0

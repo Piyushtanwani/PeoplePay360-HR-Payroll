@@ -389,4 +389,15 @@ export interface AiProviderPreset {
 
 export interface AiModel { id: string; name: string; supportsTools: boolean | null; contextLength: number | null }
 
+export interface ChatSession { id: number; title: string; startedAt: string; lastMessageAt: string | null; messageCount: number }
+export interface ChatMessage { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
+export interface ChatCapabilities {
+  configured: boolean
+  provider: string | null
+  model: string | null
+  toolsAvailable: boolean
+  toolsStatus: 'COMING_SOON' | 'READY'
+}
+export interface QuickSetupResult { profile: AiProfile; models: string[]; ok: boolean; message: string }
+
 export interface HealthCard { name: string; status: 'UP' | 'DOWN' | 'DEGRADED'; detail: string; latencyMs: number | null }

@@ -20,7 +20,7 @@ export function PayslipsPage() {
 
   const query = useQuery({
     queryKey: ['payslips', period, employeeId],
-    queryFn: () => api.get<Page<Payslip>>('/api/payslips', { period, employeeId, size: 200 }),
+    queryFn: () => api.page<Payslip>('/api/payslips', { period, employeeId, size: 200 }),
   })
 
   return (

@@ -20,6 +20,7 @@ import { AiSettingsPage } from '@/features/admin/AiSettingsPage'
 import { AuditPage } from '@/features/admin/AuditPage'
 import { HealthPage } from '@/features/admin/HealthPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
+import { AssistantPage } from '@/features/chat/AssistantPage'
 
 const gate = (permission: string | string[], element: JSX.Element) => (
   <RequirePermission permission={permission}>{element}</RequirePermission>
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'payroll/payruns/:id', element: gate('payrun.read', <PayrunDetailPage />) },
       { path: 'payroll/payslips', element: gate(['payslip.read.own', 'payslip.read.all'], <PayslipsPage />) },
       { path: 'payroll/salary-structures', element: gate('salary_structure.read', <SalaryStructuresPage />) },
+      { path: 'assistant', element: gate('chat.access', <AssistantPage />) },
       { path: 'admin/users', element: gate('user.read', <UsersPage />) },
       { path: 'admin/ai', element: gate('ai.settings', <AiSettingsPage />) },
       { path: 'admin/audit', element: gate('audit.read', <AuditPage />) },

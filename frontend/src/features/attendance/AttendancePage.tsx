@@ -102,7 +102,7 @@ function QuickAction() {
 function OwnAttendance({ employeeId }: { employeeId: number | null }) {
   const query = useQuery({
     queryKey: ['attendance', 'own', employeeId],
-    queryFn: () => api.get<Page<Attendance>>('/api/attendance', { size: 60 }),
+    queryFn: () => api.page<Attendance>('/api/attendance', { size: 60 }),
   })
   return (
     <Card>
@@ -138,12 +138,12 @@ function HrAttendance() {
 
   const records = useQuery({
     queryKey: ['attendance', 'hr', filters],
-    queryFn: () => api.get<Page<Attendance>>('/api/attendance', { ...filters, size: 100 }),
+    queryFn: () => api.page<Attendance>('/api/attendance', { ...filters, size: 100 }),
   })
 
   const exceptions = useQuery({
     queryKey: ['attendance', 'exceptions', period, exceptionType],
-    queryFn: () => api.get<Page<AttendanceException>>('/api/attendance/exceptions', { period, type: exceptionType, resolved: false, size: 100 }),
+    queryFn: () => api.page<AttendanceException>('/api/attendance/exceptions', { period, type: exceptionType, resolved: false, size: 100 }),
   })
 
   const correct = useMutation({

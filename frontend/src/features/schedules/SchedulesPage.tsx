@@ -24,7 +24,7 @@ export function SchedulesPage() {
   const queryClient = useQueryClient()
   const [selected, setSelected] = React.useState<WorkingSchedule | 'new' | null>(null)
 
-  const query = useQuery({ queryKey: ['schedules'], queryFn: () => api.get<Page<WorkingSchedule>>('/api/schedules', { size: 100 }) })
+  const query = useQuery({ queryKey: ['schedules'], queryFn: () => api.page<WorkingSchedule>('/api/schedules', { size: 100 }) })
 
   const save = useMutation({
     mutationFn: (schedule: WorkingSchedule) =>
