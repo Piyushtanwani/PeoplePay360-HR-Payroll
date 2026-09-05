@@ -6,11 +6,12 @@ import type { AdminUser } from '@/api/types'
 const USERS: AdminUser[] = [
   {
     id: 1, email: 'ana@peoplepay.local', displayName: 'Ana Silva', roleCode: 'HR_MANAGER',
-    employeeId: 5, active: true, employeeName: 'Ana Silva', grantCount: 0, lastActiveAt: null,
+    employeeId: 5, active: true, employeeName: 'Ana Silva', grantCount: 0,
+    passwordSetAt: '2026-08-01T00:00:00Z',
   },
   {
     id: 2, email: 'ben@peoplepay.local', displayName: 'Ben Okoro', roleCode: 'EMPLOYEE',
-    employeeId: 6, active: false, employeeName: 'Ben Okoro', grantCount: 2, lastActiveAt: null,
+    employeeId: 6, active: false, employeeName: 'Ben Okoro', grantCount: 2, passwordSetAt: null,
   },
 ]
 
@@ -66,5 +67,13 @@ describe('UsersPage', () => {
     renderPage(<UsersPage />, { path: '/admin/users' })
     expect(screen.getByRole('searchbox', { name: /Search name or email/ })).toBeInTheDocument()
     expect(screen.getByText('All roles')).toBeInTheDocument()
+  })
+
+  // The requirement: a login whose invite has never been redeemed must be discoverable from the
+  // list itself, not only after opening the row.
+  it('flags a login that has not set a password yet, directly in the list', () => {
+    renderPage(<UsersPage />, { path: '/admin/users' })
+    expect(screen.getByText('Invite pending')).toBeInTheDocument()
+    expect(screen.getByText('Signed up')).toBeInTheDocument()
   })
 })

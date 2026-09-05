@@ -472,6 +472,8 @@ public class DemoSeeder implements ApplicationRunner {
         u.setRole(role);
         u.setEmployeeId(employeeId);
         u.setActive(true);
+        // A seeded demo account is usable from the first request, not mid-invite.
+        u.setPasswordSetAt(java.time.OffsetDateTime.now());
         u.setBreakGlass(breakGlass);
         return users.save(u);
     }

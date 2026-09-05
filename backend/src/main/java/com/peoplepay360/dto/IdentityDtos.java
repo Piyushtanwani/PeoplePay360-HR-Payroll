@@ -28,7 +28,9 @@ public class IdentityDtos {
     public record UpdateUser(String displayName, String password, Long employeeId, Boolean active) {}
     public record RoleAssign(@NotBlank String roleCode) {}
     public record UserDetail(Long id, String email, String displayName, String roleCode, Long employeeId,
-                             boolean active, int grantCount) {}
+                             boolean active, int grantCount,
+                             /** Null while an invite is still outstanding and unredeemed. */
+                             java.time.OffsetDateTime passwordSetAt) {}
     public record PermissionCatalogueEntry(String code, String resource, String action, String scope,
                                            String tier, String description, boolean grantableByMe) {}
     public record GrantDto(Long id, Long userId, String permissionCode, String effect, String reason,

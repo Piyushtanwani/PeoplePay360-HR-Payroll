@@ -97,7 +97,23 @@ export function UsersPage() {
       tooltip: 'Permissions granted on top of the role baseline.',
       render: (r) => (r.grantCount > 0 ? <Chip tone="accent">{r.grantCount}</Chip> : <span className="text-label2">None</span>),
     },
-    { key: 'lastActive', header: 'Last active', render: (r) => fmtDateTime(r.lastActiveAt) },
+    {
+      key: 'passwordSetAt',
+      header: 'Access',
+      sortable: true,
+      render: (r) =>
+        r.passwordSetAt ? (
+          <Tooltip content={`Password set ${fmtDateTime(r.passwordSetAt)}.`}>
+            <span className="text-sm2 text-label2">Signed up</span>
+          </Tooltip>
+        ) : (
+          <Tooltip content="Has not opened the invite link yet, so this login cannot sign in.">
+            <span className="inline-flex items-center gap-1 text-sm2 font-medium text-warn">
+              <span className="h-1.5 w-1.5 rounded-full bg-warn" /> Invite pending
+            </span>
+          </Tooltip>
+        ),
+    },
     { key: 'active', header: 'Status', sortable: true, render: (r) => <ActiveBadge active={r.active} /> },
   ]
 
@@ -263,7 +279,10 @@ function UserSheet({ user, onClose }: { user: AdminUser; onClose: () => void }) 
                   ),
                 },
                 { label: 'Extra permissions', value: String(user.grantCount) },
-                { label: 'Last active', value: fmtDateTime(user.lastActiveAt) },
+                {
+                  label: 'Password',
+                  value: user.passwordSetAt ? `Set ${fmtDateTime(user.passwordSetAt)}` : 'Not set yet',
+                },
               ]}
             />
 
@@ -300,9 +319,10 @@ function UserSheet({ user, onClose }: { user: AdminUser; onClose: () => void }) 
               />
             </div>
 
-            {user.lastActiveAt === null ? (
-              <Callout tone="warn" title="Has never signed in">
-                They may not have received the invite, or it may have expired.
+            {user.passwordSetAt === null ? (
+              <Callout tone="warn" title="Has not set a password yet">
+                They cannot sign in until they open the invite link. It may not have arrived, or may have
+                expired.
                 {can('user.update') ? (
                   <Button
                     className="mt-2"
@@ -311,7 +331,7 @@ function UserSheet({ user, onClose }: { user: AdminUser; onClose: () => void }) 
                     loading={resend.isPending}
                     onClick={() => resend.mutate(user.id)}
                   >
-                    Send the invite again
+                    Resend the invite
                   </Button>
                 ) : null}
               </Callout>

@@ -504,7 +504,7 @@ export const adminUsers: AdminUser[] = demoAccounts.map((a) => ({
   id: a.id, email: a.email, displayName: a.displayName, roleCode: a.roleCode, employeeId: a.employeeId,
   active: true, employeeName: a.displayName,
   grantCount: grants.filter((g) => g.userId === a.id && g.active).length,
-  lastActiveAt: `2026-09-0${a.id}T08:12:00Z`,
+  passwordSetAt: `2026-09-0${a.id}T08:12:00Z`,
 }))
 
 export function permissionsFor(userId: number, roleCode: RoleCode) {
