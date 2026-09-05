@@ -9,7 +9,18 @@ import { api } from '@/api/client'
 import { useDepartments } from '@/api/hooks'
 import { useAuth } from '@/auth/AuthProvider'
 import { Card, CardHeader, Chip, EmptyState, KpiCard, MonthPicker, PageHeader, Select, Skeleton } from '@/components/ui'
-import { fmtPeriod, money, num, pct } from '@/lib/format'
+import { fmtPeriod, monthKey, money, num, pct } from '@/lib/format'
+
+/**
+ * The last calendar month, not the current one: payroll for the in-progress month hasn't
+ * been run yet, so defaulting to "now" would open on an empty dashboard every time.
+ */
+function lastClosedPeriod() {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() - 1)
+  return monthKey(d)
+}
 import type { Dashboard } from '@/api/types'
 
 const EMPLOYEE_TYPES = [
@@ -21,7 +32,7 @@ const EMPLOYEE_TYPES = [
 
 export function DashboardPage() {
   const { can } = useAuth()
-  const [period, setPeriod] = React.useState('2026-09')
+  const [period, setPeriod] = React.useState(lastClosedPeriod)
   const [departmentId, setDepartmentId] = React.useState<number | null>(null)
   const [employeeType, setEmployeeType] = React.useState<string | null>(null)
   const departments = useDepartments()

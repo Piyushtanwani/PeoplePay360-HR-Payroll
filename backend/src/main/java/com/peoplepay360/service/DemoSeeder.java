@@ -49,6 +49,10 @@ import com.peoplepay360.repository.TimeOffRequestRepository;
 import com.peoplepay360.repository.TimeOffTypeRepository;
 import com.peoplepay360.repository.UserPermissionGrantRepository;
 import com.peoplepay360.repository.WorkingScheduleRepository;
+import com.peoplepay360.model.Attendance;
+import com.peoplepay360.model.AttendanceException;
+import com.peoplepay360.repository.AttendanceRepository;
+import com.peoplepay360.repository.AttendanceExceptionRepository;
 
 /** Seeds a deterministic demo dataset on first startup (demo profile) and on reset. */
 @Component
@@ -75,6 +79,8 @@ public class DemoSeeder implements ApplicationRunner {
     private final CandidateIdentityRepository identities;
     private final PasswordEncoder encoder;
     private final SeedPayrunRunner payrunRunner;
+    private final AttendanceRepository attendance;
+    private final AttendanceExceptionRepository attendanceExceptions;
 
     public DemoSeeder(AppUserRepository users, RoleRepository roles, UserPermissionGrantRepository grants,
                       DepartmentRepository departments, EmployeeRepository employees, EmployeeBankAccountRepository banks,
@@ -82,7 +88,8 @@ public class DemoSeeder implements ApplicationRunner {
                       SalaryStructureRepository structures, SalaryRuleRepository rules, TimeOffTypeRepository types,
                       TimeOffAllocationRepository allocations, TimeOffRequestRepository requests,
                       PublicHolidayRepository holidays, JobOpeningRepository openings, CandidateRepository candidates,
-                      CandidateIdentityRepository identities, PasswordEncoder encoder, SeedPayrunRunner payrunRunner) {
+                      CandidateIdentityRepository identities, PasswordEncoder encoder, SeedPayrunRunner payrunRunner,
+                      AttendanceRepository attendance, AttendanceExceptionRepository attendanceExceptions) {
         this.users = users;
         this.roles = roles;
         this.grants = grants;
@@ -102,6 +109,8 @@ public class DemoSeeder implements ApplicationRunner {
         this.identities = identities;
         this.encoder = encoder;
         this.payrunRunner = payrunRunner;
+        this.attendance = attendance;
+        this.attendanceExceptions = attendanceExceptions;
     }
 
     @Override
@@ -166,12 +175,109 @@ public class DemoSeeder implements ApplicationRunner {
         // Recruitment: Warehouse Supervisor with 3 candidates at OFFER
         seedRecruitment(depts.get("Operations"), structure, schedule);
 
-        // Historical payruns May, June, July 2026 through the real engine
-        for (int month : new int[]{5, 6, 7}) {
+        // Historical payruns May through August 2026 through the real engine. August is the
+        // most recently completed month relative to the demo's "today" of 2026-09-05, so the
+        // dashboard's default (last completed month) always lands on populated data.
+        for (int month : new int[]{5, 6, 7, 8}) {
             LocalDate start = LocalDate.of(2026, month, 1);
             LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
             payrunRunner.runHistorical(structure.getId(), start, end, adminUserId);
         }
+
+        seedAttendance();
+    }
+
+    /**
+     * Attendance for every weekday in the last 45 days (excluding the seeded public holiday),
+     * so the Attendance module and every dashboard panel that reads it have real data instead
+     * of reading zero regardless of which period is selected.
+     */
+    private void seedAttendance() {
+        List<Employee> emps = employees.findAll();
+        Random rnd = new Random(20260905L);
+        LocalDate holiday = LocalDate.of(2026, 8, 15);
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusDays(45);
+        LocalDate to = today.minusDays(1); // never seed "today"; live check-ins own that day
+
+        for (Employee e : emps) {
+            for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+                if (d.getDayOfWeek().getValue() > 5) continue; // schedule only has Mon-Fri lines
+                if (d.equals(holiday)) continue;
+
+                double roll = rnd.nextDouble();
+                Attendance a = new Attendance();
+                a.setEmployeeId(e.getId());
+                a.setWorkDate(d);
+                a.setScheduledMinutes(450); // 09:00-17:00 minus a 30-minute break
+
+                String exceptionType = null;
+                int exceptionMinutes = 0;
+
+                if (roll < 0.02) {
+                    a.setStatus("ABSENT");
+                    a.setWorkedMinutes(0);
+                    exceptionType = "ABSENT";
+                    exceptionMinutes = 450;
+                } else if (roll < 0.05) {
+                    OffsetDateTime in = atLocalTime(d, 9, rnd.nextInt(10));
+                    a.setCheckIn(in);
+                    a.setStatus("MISSING_CHECKOUT");
+                    a.setWorkedMinutes(0);
+                    exceptionType = "MISSING_CHECKOUT";
+                } else if (roll < 0.10) {
+                    int lateMinutes = 20 + rnd.nextInt(26); // 20-45 minutes late
+                    OffsetDateTime in = atLocalTime(d, 9, lateMinutes);
+                    OffsetDateTime out = atLocalTime(d, 17, rnd.nextInt(15));
+                    a.setCheckIn(in);
+                    a.setCheckOut(out);
+                    a.setWorkedMinutes((int) java.time.Duration.between(in, out).toMinutes());
+                    a.setStatus("LATE");
+                    exceptionType = "LATE";
+                    exceptionMinutes = lateMinutes;
+                } else if (roll < 0.15) {
+                    OffsetDateTime in = atLocalTime(d, 8, 55 + rnd.nextInt(6));
+                    OffsetDateTime out = atLocalTime(d, 19, 30 + rnd.nextInt(31));
+                    a.setCheckIn(in);
+                    a.setCheckOut(out);
+                    int worked = (int) java.time.Duration.between(in, out).toMinutes();
+                    a.setWorkedMinutes(worked);
+                    a.setStatus("OVERTIME");
+                    exceptionType = "OVERTIME";
+                    exceptionMinutes = Math.max(0, worked - 450);
+                } else {
+                    OffsetDateTime in = atLocalTime(d, 8, 55 + rnd.nextInt(11));
+                    OffsetDateTime out = atLocalTime(d, 17, rnd.nextInt(16));
+                    a.setCheckIn(in);
+                    a.setCheckOut(out);
+                    a.setWorkedMinutes((int) java.time.Duration.between(in, out).toMinutes());
+                    a.setStatus("PRESENT");
+                    // A few present days were corrected by HR, to populate the manual-edit KPI.
+                    if (rnd.nextDouble() < 0.03) {
+                        a.setManualEdit(true);
+                        a.setEditReason("Adjusted check-out after forgotten badge-out");
+                    }
+                }
+                a = attendance.save(a);
+
+                if (exceptionType != null) {
+                    AttendanceException ex = new AttendanceException();
+                    ex.setEmployeeId(e.getId());
+                    ex.setAttendanceId(a.getId());
+                    ex.setDate(d);
+                    ex.setType(exceptionType);
+                    ex.setMinutes(exceptionMinutes);
+                    // Older exceptions have been triaged; the last week is left open for HR to review.
+                    ex.setResolved(d.isBefore(today.minusDays(7)));
+                    attendanceExceptions.save(ex);
+                }
+            }
+        }
+    }
+
+    /** minuteOffset may exceed 59 (jitter arithmetic can overshoot); plusMinutes rolls it over safely. */
+    private OffsetDateTime atLocalTime(LocalDate date, int hour, int minuteOffset) {
+        return date.atTime(hour, 0).plusMinutes(minuteOffset).atOffset(OffsetDateTime.now().getOffset());
     }
 
     private WorkingSchedule seedSchedule() {
