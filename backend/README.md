@@ -105,13 +105,31 @@ Layered packages under `com.peoplepay360`:
 ## Tests
 
 ```
-mvn test
+mvn test              # 59 fast tests, no database required
+mvn verify -Pit       # adds 43 integration tests against PostgreSQL
 ```
 
-Runs 36 tests: unit tests for the rule engine, formula engine, schedule maths, attendance classification, contract resolver, grant policy, leave balances and candidate scoring; and a full end-to-end integration suite against PostgreSQL (`peoplepay_test`, created and cleaned automatically) covering login, the RBAC matrix, IDOR protection, the payrun wizard and pre-validation gate, override/validate/pay, leave approval, dashboard redaction and the chat fallback. The integration suite needs a reachable PostgreSQL; configure it in `src/test/resources/application-it.yml`.
+`mvn test` runs the fast suite: unit tests for the rule engine, formula engine, schedule maths,
+attendance classification, contract resolver, grant policy, leave balances, candidate scoring, the
+paging normaliser, the password policy, rule categories and the audit writer, plus five ArchUnit
+rules that forbid a controller reaching a repository directly and forbid printing to standard out.
+No database is needed, so it runs anywhere.
+
+`mvn verify -Pit` adds the integration suite against PostgreSQL, covering login, the RBAC matrix,
+IDOR protection, the payrun wizard and its pre-validation gate, override, validate and pay, leave
+approval, dashboard redaction, the pagination contract including a 400 on an unknown sort field, and
+the assistant's fallback when the MCP service is unreachable.
+
+The integration suite points at a **throwaway** database, because it runs `flyway.clean()` before
+every run. It defaults to `peoplepay_test` on localhost; override the URL, username and password
+through `IT_DB_URL`, `IT_DB_USERNAME` and `IT_DB_PASSWORD`, or put them in a git-ignored
+`backend/.env.it.properties`. Never point it at the development database.
+
+Because of the login rate limit, allow a backend restart between consecutive full runs.
 
 ## Known gaps in this build
 
-- The demo seeder does not yet generate daily attendance rows, so the dashboard attendance-health figure reads zero until attendance exists.
 - Historical payruns are produced by `SeedPayrunRunner` using the real rule engine directly rather than through the `PayrunService` HTTP flow, to avoid needing a security context during seeding.
 - The integration tests use a local PostgreSQL rather than Testcontainers, because Docker is not assumed to be present in this environment.
+- Recruitment endpoints exist and are tested, but no screen opens them.
+- Mail health is excluded from `/actuator/health`: an unreachable relay is an operational warning, not a reason for an orchestrator to restart a working application. The admin health page probes SMTP separately and reports it there.

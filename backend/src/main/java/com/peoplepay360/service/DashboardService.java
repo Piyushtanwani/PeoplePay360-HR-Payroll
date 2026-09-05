@@ -4,7 +4,6 @@ import com.peoplepay360.model.Attendance;
 import com.peoplepay360.repository.AttendanceRepository;
 import com.peoplepay360.common.Money;
 import com.peoplepay360.common.Periods;
-import com.peoplepay360.model.Department;
 import com.peoplepay360.repository.DepartmentRepository;
 import com.peoplepay360.model.Employee;
 import com.peoplepay360.repository.EmployeeRepository;
@@ -21,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 @Service
@@ -33,6 +33,11 @@ public class DashboardService {
     private final com.peoplepay360.repository.TimeOffTypeRepository timeOffTypes;
     private final com.peoplepay360.repository.TimeOffRequestRepository timeOffRequests;
     private final com.peoplepay360.repository.TimeOffAllocationRepository timeOffAllocations;
+    private final com.peoplepay360.repository.AttendanceExceptionRepository exceptions;
+    private final com.peoplepay360.repository.AppUserRepository users;
+    private final com.peoplepay360.repository.PasswordSetupTokenRepository inviteTokens;
+    private final com.peoplepay360.repository.UserPermissionGrantRepository grants;
+    private final com.peoplepay360.repository.AuditEventRepository auditEvents;
     private final CurrentUser currentUser;
 
     public DashboardService(PayslipRepository payslips, PayrunRepository payruns, EmployeeRepository employees,
@@ -40,7 +45,17 @@ public class DashboardService {
                             com.peoplepay360.repository.TimeOffTypeRepository timeOffTypes,
                             com.peoplepay360.repository.TimeOffRequestRepository timeOffRequests,
                             com.peoplepay360.repository.TimeOffAllocationRepository timeOffAllocations,
+                            com.peoplepay360.repository.AttendanceExceptionRepository exceptions,
+                            com.peoplepay360.repository.AppUserRepository users,
+                            com.peoplepay360.repository.PasswordSetupTokenRepository inviteTokens,
+                            com.peoplepay360.repository.UserPermissionGrantRepository grants,
+                            com.peoplepay360.repository.AuditEventRepository auditEvents,
                             CurrentUser currentUser) {
+        this.exceptions = exceptions;
+        this.users = users;
+        this.inviteTokens = inviteTokens;
+        this.grants = grants;
+        this.auditEvents = auditEvents;
         this.payslips = payslips;
         this.payruns = payruns;
         this.employees = employees;
@@ -109,14 +124,22 @@ public class DashboardService {
         Set<Long> empIds = new HashSet<>();
         emps.forEach(e -> empIds.add(e.getId()));
 
-        // payslips in paid/sent payruns intersecting the period
-        List<Payslip> periodSlips = payslips.findAll().stream()
+        // Six months of payslips, read once. The trend below used to re-scan the whole table per month
+        // and look up each payslip's payrun individually.
+        LocalDate trendStart = range[0].minusMonths(5).withDayOfMonth(1);
+        List<Payslip> window = payslips.findInRange(trendStart, range[1]);
+        Map<Long, String> payrunStates = new HashMap<>();
+        payruns.findAllById(window.stream().map(Payslip::getPayrunId).collect(java.util.stream.Collectors.toSet()))
+                .forEach(r -> payrunStates.put(r.getId(), r.getState()));
+        java.util.function.Predicate<Payslip> settled = p -> {
+            String st = payrunStates.getOrDefault(p.getPayrunId(), "");
+            return st.equals("PAID") || st.equals("SENT");
+        };
+
+        List<Payslip> periodSlips = window.stream()
                 .filter(p -> empIds.contains(p.getEmployeeId()))
                 .filter(p -> !p.getPeriodStart().isAfter(range[1]) && !p.getPeriodEnd().isBefore(range[0]))
-                .filter(p -> {
-                    String st = payruns.findById(p.getPayrunId()).map(Payrun::getState).orElse("");
-                    return st.equals("PAID") || st.equals("SENT");
-                }).toList();
+                .filter(settled).toList();
 
         BigDecimal totalNet = periodSlips.stream().map(Payslip::getNet).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal avg = periodSlips.isEmpty() ? BigDecimal.ZERO :
@@ -139,10 +162,11 @@ public class DashboardService {
         // department rows
         Map<Long, Long> headcount = new HashMap<>();
         for (Employee e : emps) headcount.merge(e.getDepartmentId(), 1L, Long::sum);
+        Map<Long, Long> departmentOfEmployee = new HashMap<>();
+        emps.forEach(e -> departmentOfEmployee.put(e.getId(), e.getDepartmentId()));
         Map<Long, BigDecimal> spend = new HashMap<>();
         for (Payslip p : periodSlips) {
-            Long dept = employees.findById(p.getEmployeeId()).map(Employee::getDepartmentId).orElse(null);
-            spend.merge(dept, p.getNet(), BigDecimal::add);
+            spend.merge(departmentOfEmployee.get(p.getEmployeeId()), p.getNet(), BigDecimal::add);
         }
         List<DepartmentRow> deptRows = new ArrayList<>();
         List<NamedAmount> costByDept = new ArrayList<>();
@@ -162,21 +186,51 @@ public class DashboardService {
                 LocalDate m = cursor.minusMonths(i);
                 String key = String.format("%04d-%02d", m.getYear(), m.getMonthValue());
                 LocalDate[] mr = Periods.month(key);
-                BigDecimal sum = payslips.findAll().stream()
+                BigDecimal sum = window.stream()
                         .filter(p -> !p.getPeriodStart().isAfter(mr[1]) && !p.getPeriodEnd().isBefore(mr[0]))
-                        .filter(p -> {
-                            String st = payruns.findById(p.getPayrunId()).map(Payrun::getState).orElse("");
-                            return st.equals("PAID") || st.equals("SENT");
-                        })
+                        .filter(settled)
                         .map(Payslip::getNet).reduce(BigDecimal.ZERO, BigDecimal::add);
                 trend.add(new MonthAmount(key, Money.scale(sum)));
             }
         }
 
-        // alerts
+        // Alerts point at the screen that fixes them, so a figure is never a dead end.
         List<Alert> alerts = new ArrayList<>();
-        if (missing > 0) alerts.add(new Alert("WARNING", "HR", missing + " missing check-outs in the period.",
-                "/attendance/exceptions?type=MISSING_CHECKOUT"));
+        if (missing > 0) {
+            alerts.add(new Alert("WARNING", "HR", missing + " attendance entries have no check-out.",
+                    "/attendance?tab=exceptions&type=MISSING_CHECKOUT&period=" + period));
+        }
+        if (absent > 0) {
+            alerts.add(new Alert("WARNING", "HR", absent + " unexplained absences in the period.",
+                    "/attendance?tab=exceptions&type=ABSENT&period=" + period));
+        }
+        long openExceptions = exceptions.findAll().stream()
+                .filter(x -> !x.isResolved() && !x.getDate().isBefore(range[0]) && !x.getDate().isAfter(range[1]))
+                .count();
+        long pendingApprovals = timeOffRequests.findAll().stream()
+                .filter(r -> "PENDING".equals(r.getState()) || "NEEDS_ATTENTION".equals(r.getState()))
+                .count();
+        if (pendingApprovals > 0) {
+            alerts.add(new Alert("WARNING", "HR", pendingApprovals + " leave requests await a decision.",
+                    "/timeoff?tab=requests&state=PENDING"));
+        }
+        if (payroll) {
+            payruns.findAll().stream()
+                    .filter(r -> "COMPUTED".equals(r.getState()) || "VALIDATED".equals(r.getState()))
+                    .forEach(r -> alerts.add(new Alert("WARNING", "PAYROLL",
+                            r.getName() + " is " + r.getState().toLowerCase() + " and not yet paid.",
+                            "/payroll/payruns/" + r.getId())));
+        }
+
+        AdminBlock adminBlock = null;
+        if (currentUser.hasAuthority("user.read")) {
+            OffsetDateTime now = OffsetDateTime.now();
+            adminBlock = new AdminBlock(
+                    users.countByActiveTrue(),
+                    inviteTokens.countByPurposeAndUsedAtIsNullAndExpiresAtAfter("INVITE", now),
+                    grants.countByRevokedAtIsNullAndExpiresAtBetween(now, now.plusDays(7)),
+                    auditEvents.countByOutcomeAndOccurredAtAfter("DENY", now.minusDays(1)));
+        }
 
         List<TimeOffRow> timeOff = timeOffOverview(range[0], range[1]);
         BigDecimal approvedDays = timeOff.stream()
@@ -191,6 +245,7 @@ public class DashboardService {
                 coverage);
 
         return new Dashboard(period, new Filters(departmentId, employeeType), kpis,
-                payroll ? costByDept : null, trend, alerts, overview, timeOff, deptRows);
+                payroll ? costByDept : null, trend, alerts, overview, timeOff, deptRows,
+                adminBlock, emps.size(), pendingApprovals, openExceptions);
     }
 }

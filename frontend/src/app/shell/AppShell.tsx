@@ -1,9 +1,9 @@
 import * as React from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Banknote, Building2, CalendarClock, ClipboardList, Command, FileSpreadsheet, Gauge, LayoutGrid,
+  Building2, CalendarClock, ClipboardList, FileSpreadsheet, Gauge, LayoutGrid,
   Moon, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText, ShieldCheck, Sun,
-  Timer, Users, Wallet, Bell, HeartPulse, Cpu, Menu, X, Sparkles, Search,
+  Timer, Users, Wallet, HeartPulse, Cpu, Menu, Monitor, X, Sparkles, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/auth/AuthProvider'
@@ -16,8 +16,10 @@ import { ProfileMenu } from './ProfileMenu'
 export interface NavItem { to: string; label: string; icon: React.ReactNode; permission?: string | string[] }
 export interface NavGroup { label: string; items: NavItem[] }
 
+/* eslint-disable-next-line react-refresh/only-export-components -- a context and its own hook belong in one file */
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'Home', items: [{ to: '/', label: 'Dashboard', icon: <Gauge className="h-4 w-4" />, permission: 'dashboard.read.hr' }] },
+  // No permission: HomeRoute serves whichever dashboard the caller can use, so everyone has a home.
+  { label: 'Home', items: [{ to: '/', label: 'Dashboard', icon: <Gauge className="h-4 w-4" /> }] },
   {
     label: 'People',
     items: [
@@ -73,7 +75,7 @@ const CRUMBS: Record<string, string> = {
 const FULL_BLEED = new Set(['/assistant'])
 
 export function AppShell() {
-  const { me, canAny } = useAuth()
+  const { canAny } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = React.useState(() => localStorage.getItem('pp360.sidebar') === 'rail')
@@ -182,10 +184,15 @@ export function AppShell() {
               </Button>
             </Tooltip>
             <NotificationBell />
-            <Tooltip content={`Theme: ${theme}`}>
-              <Button size="sm" variant="ghost" aria-label="Toggle theme" onClick={cycleTheme} className="h-8 w-8 p-0">
-                {theme === 'dark' ? <Moon className="h-4 w-4" /> : theme === 'light' ? <Sun className="h-4 w-4" /> : <Bell className="hidden" />}
-                {theme === 'system' ? <Sun className="h-4 w-4 opacity-60" /> : null}
+            <Tooltip content={theme === 'system' ? 'Following your system theme' : `Theme: ${theme}`}>
+              <Button size="sm" variant="ghost" aria-label="Change theme" onClick={cycleTheme} className="h-8 w-8 p-0">
+                {theme === 'dark' ? (
+                  <Moon className="h-4 w-4" />
+                ) : theme === 'light' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Monitor className="h-4 w-4" />
+                )}
               </Button>
             </Tooltip>
             <ProfileMenu />

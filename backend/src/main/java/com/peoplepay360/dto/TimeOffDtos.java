@@ -8,7 +8,9 @@ import java.time.OffsetDateTime;
 public class TimeOffDtos {
     public record TypeDto(Long id, String name, String code, String unit, boolean isPaid,
                           boolean requiresAllocation, String color, boolean active) {}
-    public record SaveType(String name, String code, Boolean isPaid, Boolean requiresAllocation, String color, Boolean active) {}
+    public record SaveType(@jakarta.validation.constraints.NotBlank String name,
+                           @jakarta.validation.constraints.NotBlank String code,
+                           Boolean isPaid, Boolean requiresAllocation, String color, Boolean active) {}
     public record AllocationDto(Long id, Long employeeId, String employeeName, Long typeId, String typeName,
                                 BigDecimal days, BigDecimal taken, BigDecimal remaining,
                                 LocalDate validFrom, LocalDate validTo, String state,
@@ -26,4 +28,6 @@ public class TimeOffDtos {
     public record LeaveBalance(Long employeeId, Long typeId, String typeName, BigDecimal allocated,
                                BigDecimal taken, BigDecimal pending, BigDecimal available, BigDecimal projected) {}
     public record HolidayDto(Long id, LocalDate date, String name) {}
+    public record SaveHoliday(@NotNull LocalDate date,
+                              @jakarta.validation.constraints.NotBlank String name) {}
 }

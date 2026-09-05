@@ -1,8 +1,10 @@
 import * as React from 'react'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import * as SwitchPrimitive from '@radix-ui/react-switch'
+import { Lock } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { initials } from '@/lib/format'
+import { describeStatus, toneFor } from './status'
 
 /* ------------------------------------------------------------- Button */
 
@@ -61,14 +63,17 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
+/** A square, icon-only button. The label is required because the icon alone is not a name. */
 export const IconButton = React.forwardRef<HTMLButtonElement, ButtonProps & { label: string }>(function IconButton(
   { label, className, children, ...props },
   ref,
 ) {
   return (
-    <Button ref={ref} aria-label={label} variant="ghost" className={cn('h-8 w-8 p-0', className)} {...props}>
-      {children}
-    </Button>
+    <Tooltip content={label}>
+      <Button ref={ref} aria-label={label} variant="ghost" className={cn('h-8 w-8 p-0', className)} {...props}>
+        {children}
+      </Button>
+    </Tooltip>
   )
 })
 
@@ -82,11 +87,21 @@ export function Card({ className, children, ...props }: React.HTMLAttributes<HTM
   )
 }
 
-export function CardHeader({ title, subtitle, action, className }: { title: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; className?: string }) {
+export function CardHeader({ title, subtitle, action, help, className }: {
+  title: React.ReactNode
+  subtitle?: React.ReactNode
+  action?: React.ReactNode
+  /** A HelpPopover, for a panel whose figures need explaining. */
+  help?: React.ReactNode
+  className?: string
+}) {
   return (
     <div className={cn('flex items-start justify-between gap-4 border-b border-separator px-5 py-4', className)}>
       <div className="min-w-0">
-        <h2 className="truncate text-[17px] font-semibold tracking-[-0.01em]">{title}</h2>
+        <div className="flex items-center gap-1">
+          <h2 className="truncate text-[17px] font-semibold tracking-[-0.01em]">{title}</h2>
+          {help}
+        </div>
         {subtitle ? <p className="mt-0.5 text-sm2 text-label2">{subtitle}</p> : null}
       </div>
       {action}
@@ -113,22 +128,44 @@ export function Chip({ tone = 'neutral', className, children }: { tone?: 'neutra
   )
 }
 
-const STATUS_TONES: Record<string, 'ok' | 'warn' | 'bad' | 'purple' | 'teal' | 'neutral'> = {
-  PRESENT: 'ok', APPROVED: 'ok', PAID: 'ok', RUNNING: 'ok', ACTIVE: 'ok', UP: 'ok', ALLOW: 'ok',
-  LATE: 'warn', PENDING: 'warn', WARNING: 'warn', DRAFT: 'warn', NEEDS_ATTENTION: 'warn', DEGRADED: 'warn',
-  ABSENT: 'bad', REFUSED: 'bad', BLOCKER: 'bad', CANCELLED: 'bad', FAILED: 'bad', DENY: 'bad', DOWN: 'bad',
-  OVERTIME: 'purple', COMPUTED: 'purple',
-  SENT: 'teal', VALIDATED: 'teal', QUEUED: 'teal',
-}
-
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
-  const tone = STATUS_TONES[status] ?? 'neutral'
+/**
+ * A status, with its meaning attached.
+ *
+ * The tooltip is on by default: a colour alone does not tell anyone what NEEDS_ATTENTION requires of
+ * them, and this is the one place every status in the app passes through.
+ */
+export function StatusBadge({ status, className, tooltip = true }: {
+  status: string
+  className?: string
+  tooltip?: boolean
+}) {
   const label = status.replace(/_/g, ' ').toLowerCase().replace(/^./, (m) => m.toUpperCase())
-  return (
-    <Chip tone={tone} className={className}>
+  const badge = (
+    <Chip tone={toneFor(status)} className={className}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
       {label}
     </Chip>
+  )
+  const description = tooltip ? describeStatus(status) : undefined
+  if (!description) return badge
+  return <Tooltip content={description}><span className="inline-flex">{badge}</span></Tooltip>
+}
+
+/** A boolean shown as a status, so `active` never borrows the payrun word "Cancelled". */
+export function ActiveBadge({ active, labels = ['Active', 'Inactive'], className }: {
+  active: boolean
+  labels?: [string, string]
+  className?: string
+}) {
+  return (
+    <Tooltip content={active ? describeStatus('ACTIVE') : describeStatus('INACTIVE')}>
+      <span className="inline-flex">
+        <Chip tone={active ? 'ok' : 'neutral'} className={className}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+          {active ? labels[0] : labels[1]}
+        </Chip>
+      </span>
+    </Tooltip>
   )
 }
 
@@ -274,14 +311,48 @@ export function Tooltip({ content, children }: { content: React.ReactNode; child
   )
 }
 
+/* ------------------------------------------------- Permission refusal */
+
+/**
+ * What someone sees instead of a screen they may not open. Names the permission, so the person can
+ * ask for it by name rather than reporting that "it does not work".
+ */
+export function NotPermitted({ requiredPermission, detail }: { requiredPermission?: string; detail?: string }) {
+  return (
+    <Card className="mx-auto mt-10 max-w-lg p-8 text-center">
+      <Lock className="mx-auto mb-3 h-6 w-6 text-label2" aria-hidden />
+      <h2 className="text-[17px] font-semibold">Not permitted</h2>
+      <p className="mt-1 text-sm2 text-label2">{detail ?? 'Your role does not include access to this screen.'}</p>
+      {requiredPermission ? (
+        <p className="mt-3 inline-block rounded-full bg-surface2 px-3 py-1 text-xs2 text-label2">
+          Requires <span className="font-semibold text-label">{requiredPermission}</span>
+        </p>
+      ) : null}
+    </Card>
+  )
+}
+
 /* ---------------------------------------------------------- Page head */
 
-export function PageHeader({ title, description, actions, children }: { title: string; description?: string; actions?: React.ReactNode; children?: React.ReactNode }) {
+/**
+ * Every page says what it is for in one line, and anything beyond that goes behind the "?".
+ * A screen with neither is a screen someone has to be told about.
+ */
+export function PageHeader({ title, description, actions, help, children }: {
+  title: string
+  description?: string
+  actions?: React.ReactNode
+  help?: React.ReactNode
+  children?: React.ReactNode
+}) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-d3 font-semibold tracking-[-0.01em]">{title}</h1>
-        {description ? <p className="mt-1 text-sm2 text-label2">{description}</p> : null}
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-d3 font-semibold tracking-[-0.01em]">{title}</h1>
+          {help}
+        </div>
+        {description ? <p className="mt-1 max-w-3xl text-sm2 text-label2">{description}</p> : null}
         {children}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}

@@ -7,7 +7,14 @@ import java.math.BigDecimal;
 public class SalaryRule {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(name = "structure_id", nullable = false, insertable = false, updatable = false) private Long structureId;
+    /**
+     * Owning side of the relationship. Ignored in JSON: the structure serialises its rules, so a
+     * back-reference would recurse, including in the payrun's structure snapshot.
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "structure_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private SalaryStructure structure;
     @Column(nullable = false) private String name;
     @Column(nullable = false) private String code;
     @Column(nullable = false) private String category;
@@ -21,8 +28,10 @@ public class SalaryRule {
     private String description;
 
     public Long getId() { return id; }
-    public Long getStructureId() { return structureId; }
-    public void setStructureId(Long v) { this.structureId = v; }
+    public SalaryStructure getStructure() { return structure; }
+    public void setStructure(SalaryStructure v) { this.structure = v; }
+    /** Convenience for DTO mapping; the column itself lives on the association. */
+    public Long getStructureId() { return structure == null ? null : structure.getId(); }
     public String getName() { return name; }
     public void setName(String v) { this.name = v; }
     public String getCode() { return code; }

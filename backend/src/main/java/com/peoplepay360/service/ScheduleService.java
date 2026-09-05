@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
 import com.peoplepay360.model.WorkingSchedule;
@@ -30,6 +31,25 @@ public class ScheduleService {
                 .mapToInt(l -> (int) (Duration.between(l.getStartTime(), l.getEndTime()).toMinutes() - l.getBreakMinutes()))
                 .filter(m -> m > 0)
                 .sum();
+    }
+
+
+    /** Earliest start time on the given weekday (1=Mon..7=Sun), or null when it is not a working day. */
+    public LocalTime startForDay(WorkingSchedule schedule, int dayOfWeek) {
+        return schedule.getLines().stream()
+                .filter(l -> l.getDayOfWeek() == dayOfWeek)
+                .map(WorkingScheduleLine::getStartTime)
+                .min(LocalTime::compareTo)
+                .orElse(null);
+    }
+
+    /** Latest end time on the given weekday, or null when it is not a working day. */
+    public LocalTime endForDay(WorkingSchedule schedule, int dayOfWeek) {
+        return schedule.getLines().stream()
+                .filter(l -> l.getDayOfWeek() == dayOfWeek)
+                .map(WorkingScheduleLine::getEndTime)
+                .max(LocalTime::compareTo)
+                .orElse(null);
     }
 
     public List<LocalDate> workingDays(WorkingSchedule schedule, LocalDate from, LocalDate to, Set<LocalDate> holidays) {

@@ -1,20 +1,52 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowUp, Copy, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText,
-  Search, Sparkles, Square, Timer, Trash2, Wallet,
+  ArrowUp, CalendarDays, Copy, Gauge, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Receipt,
+  ScrollText, Search, ShieldCheck, Sparkles, Square, Timer, Trash2, Users, Wallet,
 } from 'lucide-react'
 import { api, ApiError } from '@/api/client'
 import { useAuth } from '@/auth/AuthProvider'
 import { cn } from '@/lib/cn'
 import { Markdown } from './Markdown'
+import { BlockList, ToolTrace } from './Blocks'
 import type { ChatCapabilities, ChatMessage, ChatSession } from '@/api/types'
 
-const SUGGESTIONS = [
-  { icon: <Wallet className="h-4 w-4" />, title: 'Payroll', prompt: 'Explain how a payrun is computed, step by step.' },
-  { icon: <ScrollText className="h-4 w-4" />, title: 'Contracts', prompt: 'What does a Running contract mean and why can there be only one?' },
-  { icon: <Receipt className="h-4 w-4" />, title: 'Payslips', prompt: 'How does a leave allocation affect a payslip?' },
-  { icon: <Timer className="h-4 w-4" />, title: 'Attendance', prompt: 'Which screen shows attendance exceptions before payroll?' },
+interface Suggestion {
+  icon: React.ReactNode
+  title: string
+  prompt: string
+  /** Shown only to somebody who holds this permission, because the answer needs a lookup they can make. */
+  permission?: string
+}
+
+/**
+ * Openers worth offering, in the order they are worth offering them.
+ *
+ * A suggestion is only useful if the assistant can actually answer it for the person reading it.
+ * Offering "list the recent payruns" to an employee produces a refusal, which teaches them the
+ * assistant does not work. Each opener therefore names the permission its answer depends on, and the
+ * page shows the first four the signed-in person holds.
+ */
+const SUGGESTIONS: Suggestion[] = [
+  // Self-service first: everybody holds these, and they are what most people came to ask.
+  { icon: <CalendarDays className="h-4 w-4" />, title: 'My leave', prompt: 'How many leave days do I have left?', permission: 'timeoff_request.read.own' },
+  { icon: <Receipt className="h-4 w-4" />, title: 'My payslip', prompt: 'Show my most recent payslip and explain how the net was calculated.', permission: 'payslip.read.own' },
+  { icon: <Timer className="h-4 w-4" />, title: 'My attendance', prompt: 'Do I have any unresolved attendance exceptions this month?', permission: 'attendance.read.own' },
+
+  // People and time, for anyone who looks after others.
+  { icon: <Users className="h-4 w-4" />, title: 'Headcount', prompt: 'How many active employees do we have, and how are they split by department?', permission: 'employee.read.all' },
+  { icon: <CalendarDays className="h-4 w-4" />, title: 'Approvals', prompt: 'Are there any leave requests waiting for a decision?', permission: 'timeoff_request.read.all' },
+  { icon: <Timer className="h-4 w-4" />, title: 'Exceptions', prompt: 'Which attendance exceptions are still unresolved this month?', permission: 'attendance.read.all' },
+  { icon: <ScrollText className="h-4 w-4" />, title: 'Contracts', prompt: 'Whose contracts expire in the next 90 days?', permission: 'contract.read.all' },
+
+  // Payroll.
+  { icon: <Wallet className="h-4 w-4" />, title: 'Payruns', prompt: 'List the recent payruns with their state and payout totals.', permission: 'payrun.read' },
+  { icon: <ShieldCheck className="h-4 w-4" />, title: 'Blockers', prompt: 'Is anything blocking the latest payrun from being validated?', permission: 'payrun.read' },
+  { icon: <Gauge className="h-4 w-4" />, title: 'Figures', prompt: 'Show the HR and payroll figures for last month.', permission: 'dashboard.read.hr' },
+
+  // Always available, and the fallback when somebody holds almost nothing.
+  { icon: <Sparkles className="h-4 w-4" />, title: 'My access', prompt: 'Who am I in this system, and what am I allowed to see?' },
+  { icon: <Wallet className="h-4 w-4" />, title: 'How pay works', prompt: 'Explain how a payrun is computed, step by step.' },
 ]
 
 /**
@@ -68,7 +100,11 @@ function Turn({ message, animate }: { message: ChatMessage; animate: boolean }) 
         <Sparkles className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
+        <ToolTrace calls={message.toolCalls ?? []} />
         {text ? <Markdown text={text} /> : <span className="inline-block animate-pulse text-label2">▍</span>}
+        {/* Held back until the reply has finished revealing, so the answer and its evidence
+            do not fight for attention mid-animation. */}
+        {text === message.content ? <BlockList blocks={message.blocks ?? []} /> : null}
         <button
           onClick={copy}
           className="mt-1.5 inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs2 text-label2 opacity-0 transition-opacity hover:text-label focus:opacity-100 group-hover:opacity-100"
@@ -160,6 +196,10 @@ export function AssistantPage() {
 
   const rows = messages.data ?? []
   const configured = capabilities.data?.configured ?? true
+  const toolNames = (capabilities.data?.tools ?? []).map((t) => t.name)
+  const toolsReady = capabilities.data?.toolsStatus === 'READY' && toolNames.length > 0
+  // Four openers the signed-in person can actually get an answer to.
+  const suggestions = SUGGESTIONS.filter((s) => !s.permission || can(s.permission)).slice(0, 4)
   const empty = rows.length === 0 && !send.isPending && !pending
   const list = (sessions.data ?? []).filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()))
 
@@ -239,26 +279,6 @@ export function AssistantPage() {
 
       {/* Conversation */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center gap-2.5 border-b border-separator px-4 py-2.5 sm:px-6">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/12 text-accent">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm2 font-semibold">Assistant</p>
-            <p className="truncate text-xs2 text-label2">
-              {capabilities.data?.model
-                ? `${capabilities.data.provider?.toLowerCase()} · ${capabilities.data.model}`
-                : 'Not configured'}
-            </p>
-          </div>
-          <span className="hidden items-center gap-1.5 rounded-full border border-separator px-2.5 py-1 text-xs2 text-label2 sm:inline-flex">
-            <span className={cn('h-1.5 w-1.5 rounded-full', configured ? 'bg-ok' : 'bg-warn')} />
-            {configured ? 'Ready' : 'Not configured'}
-          </span>
-          <button onClick={newChat} aria-label="New chat" className="rounded-control p-1.5 text-label2 hover:bg-surface2 lg:hidden">
-            <MessageSquarePlus className="h-4 w-4" />
-          </button>
-        </header>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
@@ -283,7 +303,7 @@ export function AssistantPage() {
                   <p className="mt-1.5 text-sm2 text-label2">Ask about payroll, contracts, attendance or leave.</p>
                 </div>
                 <div className="grid w-full gap-2.5 sm:grid-cols-2">
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <button
                       key={s.title}
                       onClick={() => send.mutate(s.prompt)}
@@ -334,6 +354,13 @@ export function AssistantPage() {
         <footer className="shrink-0 px-4 pb-4 pt-1 sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
             <div className="flex items-end gap-2 rounded-[22px] border border-separator bg-surface px-3.5 py-2.5 shadow-card transition-colors focus-within:border-accent">
+              <button
+                onClick={newChat}
+                aria-label="New chat"
+                className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label2 transition-colors hover:bg-surface2 lg:hidden"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </button>
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -358,7 +385,10 @@ export function AssistantPage() {
               </button>
             </div>
             <p className="mt-2 text-center text-xs2 text-label2">
-              Enter to send, Shift+Enter for a new line. Live record lookups arrive with MCP tools, coming soon.
+              Enter to send, Shift+Enter for a new line.{' '}
+              {toolsReady
+                ? 'Answers about your records are read live, and only from records your role may see.'
+                : 'Record lookups are offline, so answers come from general knowledge only.'}
             </p>
           </div>
         </footer>

@@ -3,13 +3,13 @@ from app.backend import backend_client
 from app.blocks import kpi_block, proposed_action_block, table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, rows_of, model_summary
 
 
 @registry.register(
     name="payrun_list",
     description="Lists payrun batches, showing their state (DRAFT, COMPUTED, VALIDATED, PAID), period, employee count, and total gross/net amounts.",
-    required_permission="payroll.read",
+    required_permission="payrun.read",
     parameters={
         "type": "object",
         "properties": {
@@ -32,10 +32,11 @@ async def payrun_list_tool(
         params["period"] = args["period"]
 
     data = await backend_client.get("/api/payruns", params=params, token=token)
-    if not data or not isinstance(data, list):
+    rows_from_backend = rows_of(data)
+    if not rows_from_backend:
         return "No payruns found matching the criteria.", [], "payrun", None
 
-    formatted = format_tool_result(data)
+    formatted = format_tool_result(rows_from_backend)
     payruns = formatted["ui_view"]
 
     rows = []
@@ -80,7 +81,13 @@ async def payrun_list_tool(
             target="/payruns"
         ))
 
+    rows_for_model = model_summary(
+        payruns,
+        ["name", "state", "periodStart", "periodEnd", "employeeCount", "payslipCount", "totalNet",
+         "blockerCount", "warningCount"],
+    )
     summary_text = (
-        f"Found {len(payruns)} payrun(s). Total cumulative net pay across these batches is ₹{total_net_sum:,.2f}."
+        f"Found {len(payruns)} payrun(s), total net ₹{total_net_sum:,.2f}.\n"
+        f"Rows: {rows_for_model}"
     )
     return summary_text, blocks, "payrun", None

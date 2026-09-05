@@ -12,6 +12,7 @@ export interface ToastMessage {
 }
 
 const ToastContext = React.createContext<{ push: (t: Omit<ToastMessage, 'id'>) => void }>({ push: () => {} })
+/* eslint-disable-next-line react-refresh/only-export-components -- a context and its own hook belong in one file */
 export const useToast = () => React.useContext(ToastContext)
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

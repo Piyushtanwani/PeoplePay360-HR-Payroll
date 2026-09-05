@@ -43,8 +43,18 @@ public class EmployeeController {
     @GetMapping("/employees/{id}")
     public EmployeeDetail get(@PathVariable Long id) { return service.get(id); }
 
+    /**
+     * Kept alongside the detail route because the assistant's tool service calls it by name.
+     * It returns the same record without the bank block, which no summary view needs.
+     */
     @GetMapping("/employees/{id}/summary")
-    public EmployeeDetail summary(@PathVariable Long id) { return service.summary(id); }
+    public EmployeeDetail summary(@PathVariable Long id) {
+        EmployeeDetail d = service.get(id);
+        return new EmployeeDetail(d.id(), d.employeeNo(), d.displayName(), d.jobTitle(), d.departmentId(),
+                d.departmentName(), d.employeeType(), d.managerId(), d.managerName(), d.active(), d.avatarColor(),
+                d.workEmail(), d.hireDate(), d.userId(), d.roleCode(), d.workingScheduleId(),
+                d.workingScheduleName(), d.activeContractId(), null, d.counts(), null);
+    }
 
     @PostMapping("/employees")
     public EmployeeDetail create(@Valid @RequestBody CreateEmployee in) { return service.create(in); }
@@ -56,6 +66,12 @@ public class EmployeeController {
 
     @DeleteMapping("/employees/{id}")
     public void delete(@PathVariable Long id) { service.deactivate(id); }
+
+    /** Creates a login for an employee onboarded without one. */
+    @PostMapping("/employees/{id}/login")
+    public EmployeeDetail createLogin(@PathVariable Long id, @Valid @RequestBody CreateLogin in) {
+        return service.createLogin(id, in);
+    }
 
     @PutMapping("/employees/{id}/bank-account")
     public void setBank(@PathVariable Long id, @Valid @RequestBody BankInput in) {

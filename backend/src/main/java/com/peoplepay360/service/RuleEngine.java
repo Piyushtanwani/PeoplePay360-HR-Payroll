@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import com.peoplepay360.model.Payrun;
+import com.peoplepay360.model.RuleCategory;
 import com.peoplepay360.model.SalaryRule;
 
 /**
@@ -37,6 +37,11 @@ public class RuleEngine {
 
         Map<String, Double> vars = new HashMap<>(baseVars);
         Map<String, BigDecimal> ruleAmounts = new HashMap<>();
+        // A rule switched off still has a code that other formulas may name. Seeding zero means a
+        // deactivation degrades the figure rather than failing the whole payrun on an unknown variable.
+        for (SalaryRule r : rules) {
+            if (!r.isActive()) vars.put("R_" + r.getCode(), 0d);
+        }
         BigDecimal cBasic = Money.zero(), cAllow = Money.zero(), cDed = Money.zero(),
                 cGross = Money.zero(), cNet = Money.zero();
         List<Line> lines = new ArrayList<>();
@@ -69,21 +74,22 @@ public class RuleEngine {
             vars.put("R_" + r.getCode(), amount.doubleValue());
             lines.add(new Line(r.getId(), r.getCode(), r.getName(), r.getCategory(), r.getSequence(), amount));
 
-            switch (r.getCategory()) {
-                case "BASIC" -> cBasic = cBasic.add(amount);
-                case "ALLOWANCE" -> cAllow = cAllow.add(amount);
-                case "DEDUCTION" -> cDed = cDed.add(amount);
-                case "GROSS" -> cGross = amount;
-                case "NET" -> cNet = amount;
-                default -> throw ApiException.validation("Unknown category: " + r.getCategory());
+            // Earnings and deductions accumulate; an explicit GROSS or NET rule replaces the running total.
+            switch (RuleCategory.parse(r.getCategory())) {
+                case BASIC -> cBasic = cBasic.add(amount);
+                case ALLOWANCE -> cAllow = cAllow.add(amount);
+                case DEDUCTION -> cDed = cDed.add(amount);
+                case GROSS -> cGross = amount;
+                case NET -> cNet = amount;
             }
         }
 
         BigDecimal basic = cBasic;
         BigDecimal allowances = cAllow;
         BigDecimal deductions = cDed;
-        boolean hasGross = ordered.stream().anyMatch(r -> "GROSS".equals(r.getCategory()));
-        boolean hasNet = ordered.stream().anyMatch(r -> "NET".equals(r.getCategory()));
+        // Without an explicit rule of that category, fall back to the arithmetic definition.
+        boolean hasGross = ordered.stream().anyMatch(r -> RuleCategory.GROSS.name().equals(r.getCategory()));
+        boolean hasNet = ordered.stream().anyMatch(r -> RuleCategory.NET.name().equals(r.getCategory()));
         BigDecimal gross = hasGross ? cGross : basic.add(allowances);
         BigDecimal net = hasNet ? cNet : gross.subtract(deductions);
 

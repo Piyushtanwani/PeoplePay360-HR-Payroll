@@ -1,247 +1,229 @@
 import * as React from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Plus } from 'lucide-react'
-import { api, ApiError } from '@/api/client'
-import { useEmployeeOptions, useScheduleNames, useStructureNames } from '@/api/hooks'
+import { Link } from 'react-router-dom'
+import { FileSignature, Plus } from 'lucide-react'
+import {
+  useContractAction, useContracts, useDeleteContract, useEmployeeOptions, useSaveContract,
+} from '@/api/hooks'
+import { CONTRACT_STATE_OPTIONS } from '@/api/constants'
 import { useAuth } from '@/auth/AuthProvider'
 import {
-  Button, Callout, Card, Chip, DataTable, DateField, Field, MoneyInput, PageHeader, SegmentedControl,
-  Select, Sheet, StatusBadge, TextInput, useToast,
+  Button, Card, ConfirmDialog, DataTable, HelpItems, HelpPopover, PageHeader, Select, StatusBadge,
+  StatusLegend, TabPanel, Tabs, type Column,
 } from '@/components/ui'
 import { fmtDate, money } from '@/lib/format'
-import type { Contract, Page } from '@/api/types'
+import { useNumberParamState, useSearchParamState } from '@/lib/hooks/useSearchParamState'
+import { useTableState } from '@/lib/hooks/useTableState'
+import { ContractSheet } from './ContractSheet'
+import { ContractTemplatesTab } from './ContractTemplatesTab'
+import type { Contract } from '@/api/types'
 
 export function ContractsPage() {
   const { can } = useAuth()
-  const toast = useToast()
-  const queryClient = useQueryClient()
-  const [searchParams] = useSearchParams()
-  const [state, setState] = React.useState<string | null>(null)
-  const [employeeId, setEmployeeId] = React.useState<number | null>(searchParams.get('employeeId') ? Number(searchParams.get('employeeId')) : null)
-  const [open, setOpen] = React.useState<Contract | 'new' | null>(null)
-  const [conflict, setConflict] = React.useState<{ message: string; id?: number } | null>(null)
-
-  const canSeeAll = can('contract.read.all')
-  const employees = useEmployeeOptions(canSeeAll)
-  const schedules = useScheduleNames()
-  const structures = useStructureNames(can('salary_structure.list_names'))
-
-  const query = useQuery({
-    queryKey: ['contracts', state, employeeId],
-    queryFn: () => api.page<Contract>('/api/contracts', { state, employeeId, size: 200 }),
-  })
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['contracts'] })
-    queryClient.invalidateQueries({ queryKey: ['employees'] })
-  }
-
-  const create = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post<Contract>('/api/contracts', body),
-    onSuccess: (contract) => {
-      invalidate()
-      setOpen(null)
-      setConflict(null)
-      toast.push({ tone: 'success', title: 'Contract created', detail: `${contract.reference} is in draft. Activate it to make it the running contract.` })
-    },
-    onError: (error) => {
-      if (error instanceof ApiError && error.code === 'CONTRACT_OVERLAP') {
-        setConflict({ message: error.detail, id: (error as unknown as { conflictingContractId?: number }).conflictingContractId })
-        return
-      }
-      toast.push({ tone: 'error', title: 'Could not create contract', detail: error instanceof ApiError ? error.detail : '' })
-    },
-  })
-
-  const activate = useMutation({
-    mutationFn: (id: number) => api.post<Contract>(`/api/contracts/${id}/activate`),
-    onSuccess: () => { invalidate(); setOpen(null); toast.push({ tone: 'success', title: 'Contract activated' }) },
-    onError: (error) => toast.push({ tone: 'error', title: 'Could not activate', detail: error instanceof ApiError ? error.detail : '' }),
-  })
-
-  const cancel = useMutation({
-    mutationFn: (id: number) => api.post<Contract>(`/api/contracts/${id}/cancel`),
-    onSuccess: () => { invalidate(); setOpen(null); toast.push({ tone: 'info', title: 'Contract cancelled' }) },
-  })
+  const [tab] = useSearchParamState<string>('tab', 'contracts')
 
   return (
     <>
       <PageHeader
         title="Contracts"
-        description="History is retained, but only one contract may be running for a period — payroll depends on it."
-        actions={can('contract.create.all') ? <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => { setConflict(null); setOpen('new') }}>New contract</Button> : undefined}
+        description="What payroll reads for each person. Everything about pay lives here, not on the employee record."
+        help={
+          <HelpPopover title="How contracts work">
+            <HelpItems
+              items={[
+                { term: 'One at a time', text: 'Contracts for a person may not overlap, so any period resolves to exactly one.' },
+                { term: 'What payroll uses', text: 'The wage, wage type and salary structure on the contract covering the period.' },
+                { term: 'Draft and running', text: 'A draft affects nothing. Activating it makes it the contract payroll reads.' },
+                { term: 'Ending one', text: 'Set an end date, or cancel it. History is kept either way.' },
+                { term: 'Templates', text: 'Reusable terms so onboarding creates the contract in the same step.' },
+              ]}
+            />
+          </HelpPopover>
+        }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <SegmentedControl
-          value={state ?? 'ALL'}
-          onChange={(value) => setState(value === 'ALL' ? null : value)}
-          options={[
-            { value: 'ALL', label: 'All' },
-            { value: 'DRAFT', label: 'Draft' },
-            { value: 'RUNNING', label: 'Running' },
-            { value: 'EXPIRED', label: 'Expired' },
-            { value: 'CANCELLED', label: 'Cancelled' },
-          ]}
-        />
-        {canSeeAll ? (
-          <Select
-            className="w-64"
-            value={employeeId}
-            onChange={setEmployeeId}
-            clearable
-            onClear={() => setEmployeeId(null)}
-            placeholder="All employees"
-            options={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: e.employeeNo }))}
-          />
-        ) : null}
-        <span className="text-sm2 text-label2">{query.data?.totalElements ?? 0} contracts</span>
-      </div>
-
-      <Card>
-        <DataTable
-          rows={query.data?.content ?? []}
-          loading={query.isLoading}
-          onRowClick={(row) => setOpen(row)}
-          columns={[
-            { key: 'ref', header: 'Contract', render: (r) => <span className="tnum font-medium">{r.reference}</span>, sortValue: (r) => r.reference },
-            { key: 'employee', header: 'Employee', render: (r) => <Link to={`/employees/${r.employeeId}`} className="hover:text-accent" onClick={(e) => e.stopPropagation()}>{r.employeeName}</Link>, sortValue: (r) => r.employeeName },
-            { key: 'start', header: 'Start', render: (r) => fmtDate(r.startDate), sortValue: (r) => r.startDate },
-            { key: 'end', header: 'End', render: (r) => (r.endDate ? fmtDate(r.endDate) : '—') },
-            ...(canSeeAll ? [{ key: 'wage', header: 'Wage / month', align: 'right' as const, render: (r: Contract) => money(r.wage), sortValue: (r: Contract) => r.wage ?? 0 }] : []),
-            { key: 'schedule', header: 'Schedule', render: (r) => r.workingScheduleName ?? '—' },
-            ...(canSeeAll ? [{ key: 'structure', header: 'Structure', render: (r: Contract) => r.salaryStructureName ?? '—' }] : []),
-            { key: 'state', header: 'Status', render: (r) => <div className="flex items-center gap-1.5"><StatusBadge status={r.state} />{r.isActiveNow ? <Chip tone="ok">Active now</Chip> : null}</div> },
-          ]}
-        />
-      </Card>
-
-      <ContractSheet
-        contract={open}
-        onOpenChange={(next) => { if (!next) { setOpen(null); setConflict(null) } }}
-        conflict={conflict}
-        saving={create.isPending || activate.isPending}
-        canEdit={can('contract.create.all')}
-        canActivate={can('contract.activate')}
-        employees={(employees.data?.content ?? []).map((e) => ({ value: e.id, label: e.displayName, description: `${e.employeeNo} · ${e.departmentName}` }))}
-        schedules={(schedules.data ?? []).map((s) => ({ value: s.id, label: s.name, description: `${s.weeklyHours}h per week` }))}
-        structures={(structures.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
-        onCreate={(body) => create.mutate(body)}
-        onActivate={(id) => activate.mutate(id)}
-        onCancel={(id) => cancel.mutate(id)}
-      />
+      <Tabs
+        urlKey="tab"
+        items={[
+          { value: 'contracts', label: 'Contracts' },
+          { value: 'templates', label: 'Templates', hidden: !can('contract.read.all') },
+        ]}
+      >
+        <TabPanel value="contracts">
+          <ContractsTab />
+        </TabPanel>
+        <TabPanel value="templates">{tab === 'templates' ? <ContractTemplatesTab /> : null}</TabPanel>
+      </Tabs>
     </>
   )
 }
 
-function ContractSheet({ contract, onOpenChange, employees, schedules, structures, onCreate, onActivate, onCancel, conflict, saving, canEdit, canActivate }: {
-  contract: Contract | 'new' | null
-  onOpenChange: (open: boolean) => void
-  employees: { value: number; label: string; description?: string }[]
-  schedules: { value: number; label: string; description?: string }[]
-  structures: { value: number; label: string }[]
-  onCreate: (body: Record<string, unknown>) => void
-  onActivate: (id: number) => void
-  onCancel: (id: number) => void
-  conflict: { message: string; id?: number } | null
-  saving: boolean
-  canEdit: boolean
-  canActivate: boolean
-}) {
-  const isNew = contract === 'new'
-  const [form, setForm] = React.useState({
-    employeeId: null as number | null, wage: 55000, wageType: 'MONTHLY', startDate: '2026-10-01',
-    endDate: '', workingScheduleId: null as number | null, salaryStructureId: null as number | null, jobTitle: '',
-  })
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
+function ContractsTab() {
+  const { can } = useAuth()
+  const employees = useEmployeeOptions(can('employee.read.all'))
 
-  React.useEffect(() => { if (isNew) setForm((f) => ({ ...f, employeeId: null })) }, [isNew])
+  const [state, setState] = useSearchParamState<string>('state', '')
+  const [employeeId, setEmployeeId] = useNumberParamState('employeeId')
+  const [contractId, setContractId] = useNumberParamState('contractId')
 
-  if (!contract) return null
+  const table = useTableState({ defaultSort: 'startDate', defaultDir: 'desc' })
+  const list = useContracts({ ...table.params, state: state || undefined, employeeId })
 
-  if (!isNew) {
-    const row = contract
-    return (
-      <Sheet
-        open
-        onOpenChange={onOpenChange}
-        title={`Contract ${row.reference}`}
-        description={`${row.employeeName} · ${row.departmentName}`}
-        footer={
-          <>
-            {row.state === 'DRAFT' && canActivate ? <Button variant="primary" onClick={() => onActivate(row.id)} loading={saving}>Activate contract</Button> : null}
-            {(row.state === 'DRAFT' || row.state === 'RUNNING') && canEdit ? <Button variant="danger" onClick={() => onCancel(row.id)}>Cancel contract</Button> : null}
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
-          </>
-        }
-      >
-        <dl className="divide-y divide-separator rounded-card border border-separator">
-          {[
-            ['Employee', row.employeeName],
-            ['Job position', row.jobTitle],
-            ['Department', row.departmentName],
-            ['Start date', fmtDate(row.startDate)],
-            ['End date', row.endDate ? fmtDate(row.endDate) : 'Open ended'],
-            ['Wage / month', money(row.wage)],
-            ['Working schedule', row.workingScheduleName ?? '—'],
-            ['Salary structure', row.salaryStructureName ?? '—'],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-4 px-4 py-2.5 text-sm2">
-              <dt className="text-label2">{label}</dt>
-              <dd className="text-right font-medium">{value}</dd>
-            </div>
-          ))}
-          <div className="flex justify-between gap-4 px-4 py-2.5 text-sm2">
-            <dt className="text-label2">Status</dt>
-            <dd><StatusBadge status={row.state} /></dd>
-          </div>
-        </dl>
-        <p className="mt-4 text-xs2 text-label2">
-          This running contract is the source for payroll calculation in the active period.
-        </p>
-      </Sheet>
-    )
-  }
+  const [creating, setCreating] = React.useState(false)
+  const [open, setOpen] = React.useState<Contract | null>(null)
+  const [cancelling, setCancelling] = React.useState<Contract | null>(null)
+  const [deleting, setDeleting] = React.useState<Contract | null>(null)
 
-  const valid = form.employeeId && form.startDate && form.wage > 0
+  // A contract can be deep-linked from the employee record or the audit log.
+  React.useEffect(() => {
+    if (contractId === null) return
+    const match = list.data?.content.find((c) => c.id === contractId)
+    if (match) setOpen(match)
+  }, [contractId, list.data])
+
+  const save = useSaveContract(() => { setCreating(false); setOpen(null) })
+  const action = useContractAction(() => { setCancelling(null); setOpen(null) })
+  const remove = useDeleteContract(() => { setDeleting(null); setOpen(null) })
+
+  const columns: Column<Contract>[] = [
+    { key: 'reference', header: 'Reference', sortable: true, render: (r) => <span className="tnum font-medium">{r.reference}</span> },
+    {
+      key: 'employeeId',
+      header: 'Employee',
+      sortable: true,
+      render: (r) => (
+        <Link
+          to={`/employees/${r.employeeId}`}
+          onClick={(e) => e.stopPropagation()}
+          className="font-medium text-accent hover:underline"
+        >
+          {r.employeeName}
+        </Link>
+      ),
+    },
+    { key: 'jobTitle', header: 'Job title', sortable: true, render: (r) => r.jobTitle || '—' },
+    { key: 'startDate', header: 'Start', sortable: true, render: (r) => fmtDate(r.startDate) },
+    { key: 'endDate', header: 'End', sortable: true, render: (r) => (r.endDate ? fmtDate(r.endDate) : 'Open ended') },
+    {
+      key: 'wage',
+      header: 'Wage',
+      align: 'right',
+      sortable: true,
+      tooltip: 'Hidden unless your role may read all contracts.',
+      render: (r) => (r.wage !== null ? money(r.wage) : '—'),
+    },
+    { key: 'structure', header: 'Salary structure', render: (r) => r.salaryStructureName ?? '—' },
+    { key: 'state', header: 'Status', sortable: true, render: (r) => <StatusBadge status={r.state} /> },
+  ]
 
   return (
-    <Sheet
-      open
-      onOpenChange={onOpenChange}
-      title="New contract"
-      description="A new contract starts in draft. Activate it to make it the running contract."
-      footer={
-        <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} loading={saving} onClick={() => onCreate({ ...form, endDate: form.endDate || null })}>Create contract</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {conflict ? (
-          <Callout tone="bad" title="Contract period overlaps">
-            {conflict.message}
-          </Callout>
-        ) : null}
-        <Field label="Employee" required><Select value={form.employeeId} onChange={(v) => set('employeeId', v)} options={employees} placeholder="Select employee" /></Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Wage" required><MoneyInput value={form.wage} onChange={(v) => set('wage', v)} /></Field>
-          <Field label="Wage type" required>
-            <SegmentedControl value={form.wageType} onChange={(v) => set('wageType', v)} options={[{ value: 'MONTHLY', label: 'Monthly' }, { value: 'HOURLY', label: 'Hourly' }]} />
-          </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Start date" required><DateField value={form.startDate} onChange={(v) => set('startDate', v)} /></Field>
-          <Field label="End date" hint="Leave empty for an open-ended contract."><DateField value={form.endDate} min={form.startDate} onChange={(v) => set('endDate', v)} /></Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Working schedule"><Select value={form.workingScheduleId} onChange={(v) => set('workingScheduleId', v)} options={schedules} placeholder="Select schedule" /></Field>
-          <Field label="Salary structure"><Select value={form.salaryStructureId} onChange={(v) => set('salaryStructureId', v)} options={structures} placeholder="Select structure" /></Field>
-        </div>
-        <Field label="Job position"><TextInput value={form.jobTitle} onChange={(e) => set('jobTitle', e.target.value)} placeholder="Payroll Specialist" /></Field>
-      </div>
-    </Sheet>
+    <>
+      <Card>
+        <DataTable
+          rows={list.data?.content ?? []}
+          columns={columns}
+          table={table}
+          total={list.data?.totalElements}
+          loading={list.isLoading}
+          fetching={list.isFetching}
+          error={list.error}
+          onRetry={() => list.refetch()}
+          onRowClick={(r) => { setOpen(r); setContractId(r.id) }}
+          toolbar={{
+            search: 'Search reference, person or job title',
+            filters: (
+              <>
+                <Select value={state} onChange={setState} options={CONTRACT_STATE_OPTIONS} className="w-44" />
+                {can('employee.read.all') ? (
+                  <Select
+                    value={employeeId}
+                    onChange={setEmployeeId}
+                    clearable
+                    onClear={() => setEmployeeId(null)}
+                    placeholder="All employees"
+                    className="w-56"
+                    options={(employees.data?.content ?? []).map((e) => ({
+                      value: e.id,
+                      label: e.displayName,
+                      description: e.employeeNo,
+                    }))}
+                  />
+                ) : null}
+                <StatusLegend statuses={['DRAFT', 'RUNNING', 'EXPIRED', 'CANCELLED']} />
+              </>
+            ),
+            actions: can('contract.create.all') ? (
+              <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+                New contract
+              </Button>
+            ) : undefined,
+          }}
+          empty={{
+            icon: <FileSignature className="h-6 w-6" />,
+            title: 'No contracts here',
+            description: 'A person needs a running contract covering the period before payroll can pay them.',
+            action: can('contract.create.all') ? (
+              <Button variant="primary" onClick={() => setCreating(true)}>Create a contract</Button>
+            ) : undefined,
+          }}
+        />
+      </Card>
+
+      <ContractSheet
+        open={creating}
+        onOpenChange={setCreating}
+        employeeId={employeeId}
+        saving={save.isPending}
+        error={save.error}
+        onSubmit={(body) => save.mutate({ id: null, body })}
+      />
+
+      <ContractSheet
+        open={open !== null}
+        onOpenChange={(isOpen) => { if (!isOpen) { setOpen(null); setContractId(null) } }}
+        contract={open}
+        saving={save.isPending}
+        error={save.error}
+        onSubmit={(body) => open && save.mutate({ id: open.id, body })}
+        footerActions={
+          open ? (
+            <>
+              {open.state === 'DRAFT' && can('contract.activate') ? (
+                <Button variant="primary" loading={action.isPending} onClick={() => action.mutate({ id: open.id, action: 'activate' })}>
+                  Activate
+                </Button>
+              ) : null}
+              {['DRAFT', 'RUNNING'].includes(open.state) && can('contract.update.all') ? (
+                <Button variant="danger" onClick={() => setCancelling(open)}>Cancel contract</Button>
+              ) : null}
+              {open.state === 'DRAFT' && can('contract.delete.all') ? (
+                <Button onClick={() => setDeleting(open)}>Delete draft</Button>
+              ) : null}
+            </>
+          ) : null
+        }
+      />
+
+      <ConfirmDialog
+        open={cancelling !== null}
+        onOpenChange={(isOpen) => !isOpen && setCancelling(null)}
+        title={`Cancel ${cancelling?.reference}?`}
+        sentence={`${cancelling?.employeeName} will have no contract for the period this one covered, so they cannot be paid until another is in force.`}
+        confirmLabel="Cancel contract"
+        tone="danger"
+        loading={action.isPending}
+        onConfirm={() => cancelling && action.mutate({ id: cancelling.id, action: 'cancel' })}
+      />
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(isOpen) => !isOpen && setDeleting(null)}
+        title={`Delete ${deleting?.reference}?`}
+        sentence="A draft contract affects nothing, so deleting it removes it entirely rather than keeping a record."
+        confirmLabel="Delete draft"
+        tone="danger"
+        loading={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
+    </>
   )
 }

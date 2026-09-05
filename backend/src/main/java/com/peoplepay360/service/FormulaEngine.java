@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -31,7 +32,11 @@ public class FormulaEngine {
         }
     };
 
-    public static final Set<Function> FUNCTIONS = Set.of(MIN, MAX, ROUND);
+    /** The custom functions exp4j does not ship. Also advertised by the formula help panel. */
+    public static final List<Function> FUNCTIONS = List.of(MIN, MAX, ROUND);
+    /** Names as shown to the user, custom functions plus the exp4j built-ins worth advertising. */
+    public static final List<String> FUNCTION_HELP =
+            List.of("min(a,b)", "max(a,b)", "round(a)", "abs(a)", "floor(a)", "ceil(a)", "sqrt(a)");
 
     /** Result plus a division-by-zero flag. */
     public record Eval(BigDecimal value, boolean divByZero) {}
@@ -39,7 +44,7 @@ public class FormulaEngine {
     public Eval evaluate(String formula, Map<String, Double> variables) {
         try {
             Expression e = new ExpressionBuilder(formula)
-                    .functions(MIN, MAX, ROUND)
+                    .functions(FUNCTIONS)
                     .variables(variables.keySet())
                     .build()
                     .setVariables(variables);
@@ -62,7 +67,7 @@ public class FormulaEngine {
     public void validate(String formula, Set<String> allowedVars) {
         try {
             new ExpressionBuilder(formula)
-                    .functions(MIN, MAX, ROUND)
+                    .functions(FUNCTIONS)
                     .variables(allowedVars)
                     .build();
         } catch (Exception ex) {

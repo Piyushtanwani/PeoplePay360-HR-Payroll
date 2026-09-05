@@ -18,7 +18,7 @@ export class ApiError extends Error {
   errors: { field: string; message: string }[]
   retryAfter?: number
 
-  constructor(problem: ProblemDetail, retryAfter?: number) {
+  constructor(problem: Partial<ProblemDetail> & { status: number }, retryAfter?: number) {
     super(problem.detail || problem.title || `Request failed (${problem.status})`)
     this.name = 'ApiError'
     this.status = problem.status
@@ -49,10 +49,12 @@ function uuid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+export type QueryValue = string | number | boolean | null | undefined | (string | number)[]
+
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
-  query?: Record<string, string | number | boolean | null | undefined>
+  query?: Record<string, QueryValue>
   headers?: Record<string, string>
   idempotencyKey?: string
   raw?: boolean
@@ -64,6 +66,11 @@ export function buildUrl(path: string, query?: RequestOptions['query']) {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(query)) {
     if (v === undefined || v === null || v === '') continue
+    // Arrays repeat the key, which is how a secondary sort is expressed: sort=period,desc&sort=name,asc
+    if (Array.isArray(v)) {
+      for (const item of v) params.append(k, String(item))
+      continue
+    }
     params.set(k, String(v))
   }
   const qs = params.toString()
@@ -115,29 +122,25 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-export interface PageLike<T> { content: T[]; page: number; size: number; totalElements: number; totalPages: number }
-
-/** Several backend list endpoints return a bare array rather than a page envelope. */
-export function toPage<T>(data: T[] | PageLike<T> | undefined | null): PageLike<T> {
-  if (Array.isArray(data)) return { content: data, page: 0, size: data.length, totalElements: data.length, totalPages: 1 }
-  if (!data) return { content: [], page: 0, size: 0, totalElements: 0, totalPages: 0 }
-  return data
+/** The envelope every list endpoint returns. */
+export interface Page<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
 }
+
 
 export const api = {
   get: <T>(path: string, query?: RequestOptions['query'], headers?: Record<string, string>) =>
     request<T>(path, { method: 'GET', query, headers }),
+  /** A paged list. Use `get` for the small reference endpoints that return a bare array. */
   page: <T>(path: string, query?: RequestOptions['query']) =>
-    request<T[] | PageLike<T>>(path, { method: 'GET', query }).then((data) => toPage<T>(data)),
+    request<Page<T>>(path, { method: 'GET', query }),
   post: <T>(path: string, body?: unknown, query?: RequestOptions['query']) =>
     request<T>(path, { method: 'POST', body, query }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
+  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
-  raw: (path: string, query?: RequestOptions['query']) => request<Response>(path, { query, raw: true }),
-}
-
-export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.detail
-  if (error instanceof Error) return error.message
-  return 'Unexpected error.'
 }

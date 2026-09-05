@@ -4,7 +4,6 @@ import com.peoplepay360.model.Attendance;
 import com.peoplepay360.repository.AttendanceRepository;
 import com.peoplepay360.model.Contract;
 import com.peoplepay360.model.Employee;
-import com.peoplepay360.service.ScheduleService;
 import com.peoplepay360.model.WorkingSchedule;
 import com.peoplepay360.repository.WorkingScheduleRepository;
 import com.peoplepay360.repository.PublicHolidayRepository;
@@ -30,16 +29,19 @@ public class PayrollInputsBuilder {
     private final PublicHolidayRepository holidays;
     private final WorkingScheduleRepository schedules;
     private final ScheduleService scheduleService;
+    private final AttendanceClassifier classifier;
 
     public PayrollInputsBuilder(AttendanceRepository attendance, TimeOffRequestRepository requests,
                                 TimeOffTypeRepository types, PublicHolidayRepository holidays,
-                                WorkingScheduleRepository schedules, ScheduleService scheduleService) {
+                                WorkingScheduleRepository schedules, ScheduleService scheduleService,
+                                AttendanceClassifier classifier) {
         this.attendance = attendance;
         this.requests = requests;
         this.types = types;
         this.holidays = holidays;
         this.schedules = schedules;
         this.scheduleService = scheduleService;
+        this.classifier = classifier;
     }
 
     public record Inputs(BigDecimal scheduledDays, BigDecimal workedDays, BigDecimal unpaidDays,
@@ -79,9 +81,8 @@ public class PayrollInputsBuilder {
         int overtimeMinutes = 0;
         for (Attendance a : attendance.findRange(employee.getId(), periodStart, periodEnd)) {
             if (a.getCheckOut() != null) workedDates.add(a.getWorkDate());
-            if ("OVERTIME".equals(a.getStatus())) {
-                overtimeMinutes += Math.max(0, a.getWorkedMinutes() - a.getScheduledMinutes());
-            }
+            // One definition of overtime, shared with the classifier that assigned the status.
+            overtimeMinutes += classifier.overtimeMinutes(a);
         }
         BigDecimal workedDays = BigDecimal.valueOf(workedDates.size()).add(paidLeave);
 

@@ -4,13 +4,13 @@ from app.backend import backend_client
 from app.blocks import kpi_block, table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, rows_of, model_summary
 
 
 @registry.register(
     name="attendance_list_exceptions",
     description="Lists attendance exceptions such as missing checkouts, late arrivals, or early departures for a given monthly period (YYYY-MM).",
-    required_permission="attendance.read",
+    required_permission="attendance.read.all",
     parameters={
         "type": "object",
         "properties": {
@@ -39,10 +39,11 @@ async def attendance_list_exceptions_tool(
         params["resolved"] = args["resolved"]
 
     data = await backend_client.get("/api/attendance/exceptions", params=params, token=token)
-    if not data or not isinstance(data, list):
+    rows_from_backend = rows_of(data)
+    if not rows_from_backend:
         return f"No attendance exceptions found for period {period}.", [], "attendance_exception", None
 
-    formatted = format_tool_result(data)
+    formatted = format_tool_result(rows_from_backend)
     exceptions = formatted["ui_view"]
 
     rows = []
@@ -76,8 +77,12 @@ async def attendance_list_exceptions_tool(
             rows=rows
         ))
 
+    rows_for_model = model_summary(
+        exceptions,
+        ["employeeName", "date", "type", "minutes", "resolved"],
+    )
     summary_text = (
-        f"Found {len(exceptions)} attendance exception(s) for {period} "
-        f"({unresolved_count} unresolved)."
+        f"{len(exceptions)} attendance exception(s) for {period}, {unresolved_count} still open.\n"
+        f"Rows: {rows_for_model}"
     )
     return summary_text, blocks, "attendance_exception", None

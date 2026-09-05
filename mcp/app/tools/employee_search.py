@@ -3,13 +3,17 @@ from app.backend import backend_client
 from app.blocks import table_block
 from app.registry import registry
 from app.security import TokenClaims
-from app.views import format_tool_result
+from app.views import format_tool_result, model_summary
 
 
 @registry.register(
     name="employee_search",
-    description="Search and filter active or past employees by name, department, or status.",
-    required_permission="employee.read",
+    description=(
+        "The employee directory: how many people work here, who they are, which department "
+        "they sit in, and their job titles. Use this for any question about headcount or "
+        "about finding a person. Returns the total number of matches."
+    ),
+    required_permission="employee.read.all",
     parameters={
         "type": "object",
         "properties": {
@@ -29,7 +33,9 @@ async def employee_search_tool(
     params = {
         "q": args.get("q"),
         "departmentId": args.get("departmentId"),
-        "status": args.get("status", "ACTIVE"),
+        # The endpoint filters on a boolean, not a status string.
+        "active": args.get("status", "ACTIVE") != "INACTIVE",
+        "sort": "displayName,asc",
         "page": 0,
         "size": 20,
     }
@@ -38,6 +44,8 @@ async def employee_search_tool(
         return "No employees found matching the search criteria.", [], "employee", None
 
     items = data.get("content", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    # The endpoint pages, so the count of rows on this page is not the count of matches.
+    total = data.get("totalElements", len(items)) if isinstance(data, dict) else len(items)
     formatted = format_tool_result(items)
 
     rows = []
@@ -47,7 +55,7 @@ async def employee_search_tool(
             f"{emp.get('firstName', '')} {emp.get('lastName', '')}".strip() or emp.get("displayName", "N/A"),
             emp.get("departmentName") or (emp.get("department") or {}).get("name", "N/A"),
             emp.get("jobTitle") or emp.get("position", "N/A"),
-            emp.get("status", "ACTIVE"),
+            "Active" if emp.get("active", True) else "Inactive",
         ])
 
     blocks = []
@@ -58,5 +66,14 @@ async def employee_search_tool(
             rows=rows
         ))
 
-    summary_text = f"Found {len(items)} employees matching your criteria."
+    # The model is given the rows themselves, so it can answer about the people rather than only
+    # report a count. Personal details are stripped by model_summary before they reach the context.
+    rows_for_model = model_summary(
+        items,
+        ["employeeNo", "displayName", "jobTitle", "departmentName", "employeeType", "active"],
+    )
+    summary_text = (
+        f"{total} employees match. Showing the first {len(items)}.\n"
+        f"Rows: {rows_for_model}"
+    )
     return summary_text, blocks, "employee", None

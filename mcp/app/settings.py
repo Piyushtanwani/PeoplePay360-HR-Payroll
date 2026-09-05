@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     jwt_audience: str = "mcp"
     mcp_gateway_secret: str = "change-me-32-chars-minimum-value!"
     http_timeout_seconds: float = 20.0
-    llm_timeout_seconds: float = 90.0
+    # A local model on ordinary hardware takes minutes on a first call: the weights have to be
+    # loaded and a reasoning model thinks before it answers. Ninety seconds cut those off mid-answer,
+    # and the client then retried, so one question could burn several minutes and still fail.
+    llm_timeout_seconds: float = 600.0
     log_level: str = "INFO"
     app_env: str = "dev"
     enable_mock_llm: bool = True

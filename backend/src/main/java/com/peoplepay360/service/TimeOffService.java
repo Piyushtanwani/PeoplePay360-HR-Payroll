@@ -1,7 +1,6 @@
 package com.peoplepay360.service;
 
 import com.peoplepay360.common.ApiException;
-import com.peoplepay360.common.ErrorCode;
 import com.peoplepay360.common.Money;
 import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
@@ -14,6 +13,12 @@ import com.peoplepay360.security.CurrentUser;
 import com.peoplepay360.security.ScopeResolver;
 import com.peoplepay360.security.SelfActionGuard;
 import com.peoplepay360.dto.TimeOffDtos.*;
+import com.peoplepay360.common.Paging;
+import com.peoplepay360.common.Specs;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +27,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import com.peoplepay360.model.TimeOffAllocation;
 import com.peoplepay360.model.TimeOffRequest;
@@ -34,6 +41,17 @@ import com.peoplepay360.repository.TimeOffTypeRepository;
 
 @Service
 public class TimeOffService {
+    private static final Map<String, String> ALLOCATION_SORTS = Map.of(
+            "validFrom", "validFrom", "validTo", "validTo", "state", "state",
+            "days", "days", "employeeId", "employeeId", "typeId", "typeId");
+    private static final Sort ALLOCATION_DEFAULT =
+            Sort.by(Sort.Order.desc("validFrom"), Sort.Order.desc("id"));
+    private static final Map<String, String> REQUEST_SORTS = Map.of(
+            "startDate", "startDate", "endDate", "endDate", "state", "state",
+            "days", "days", "employeeId", "employeeId", "typeId", "typeId");
+    private static final Sort REQUEST_DEFAULT =
+            Sort.by(Sort.Order.desc("startDate"), Sort.Order.desc("id"));
+
     private final TimeOffTypeRepository types;
     private final TimeOffAllocationRepository allocations;
     private final TimeOffRequestRepository requests;
@@ -95,14 +113,20 @@ public class TimeOffService {
     }
 
     // ---------- allocations ----------
+    /** Allocations, most recent validity first. Filters run in SQL rather than over the whole table. */
     @PreAuthorize("hasAuthority('timeoff_allocation.read.own')")
     @Transactional(readOnly = true)
-    public List<AllocationDto> listAllocations(Long employeeId, String state) {
+    public Page<AllocationDto> listAllocations(Long employeeId, String state, Long typeId, Pageable pageable) {
         Long scoped = scopeResolver.resolveEmployeeFilter("timeoff_allocation.read.all", employeeId);
-        return allocations.findAll().stream()
-                .filter(a -> scoped == null || a.getEmployeeId().equals(scoped))
-                .filter(a -> state == null || a.getState().equals(state))
-                .map(this::toAllocation).toList();
+        Specification<TimeOffAllocation> spec = (root, cq, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> ps = new ArrayList<>();
+            if (scoped != null) ps.add(cb.equal(root.get("employeeId"), scoped));
+            if (state != null && !state.isBlank()) ps.add(cb.equal(root.get("state"), state));
+            if (typeId != null) ps.add(cb.equal(root.get("typeId"), typeId));
+            return cb.and(ps.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return allocations.findAll(spec, Paging.normalise(pageable, ALLOCATION_DEFAULT, ALLOCATION_SORTS))
+                .map(this::toAllocation);
     }
 
     @PreAuthorize("hasAuthority('timeoff_allocation.create.all')")
@@ -134,14 +158,27 @@ public class TimeOffService {
     }
 
     // ---------- requests ----------
+    /** Requests, most recent start date first, narrowed by employee, department, type, state or dates. */
     @PreAuthorize("hasAuthority('timeoff_request.read.own')")
     @Transactional(readOnly = true)
-    public List<RequestDto> listRequests(Long employeeId, String state) {
+    public Page<RequestDto> listRequests(Long employeeId, String state, Long typeId, Long departmentId,
+                                         LocalDate from, LocalDate to, Pageable pageable) {
         Long scoped = scopeResolver.resolveEmployeeFilter("timeoff_request.read.all", employeeId);
-        return requests.findAll().stream()
-                .filter(r -> scoped == null || r.getEmployeeId().equals(scoped))
-                .filter(r -> state == null || r.getState().equals(state))
-                .map(this::toRequest).toList();
+        List<Long> inDepartment = departmentId == null ? null : employees.findIdsByDepartmentId(departmentId);
+        if (inDepartment != null && inDepartment.isEmpty()) return Page.empty(pageable);
+
+        Specification<TimeOffRequest> spec = (root, cq, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> ps = new ArrayList<>();
+            if (scoped != null) ps.add(cb.equal(root.get("employeeId"), scoped));
+            if (inDepartment != null) ps.add(Specs.in(cb, root.get("employeeId"), inDepartment));
+            if (state != null && !state.isBlank()) ps.add(cb.equal(root.get("state"), state));
+            if (typeId != null) ps.add(cb.equal(root.get("typeId"), typeId));
+            if (from != null) ps.add(cb.greaterThanOrEqualTo(root.get("endDate"), from));
+            if (to != null) ps.add(cb.lessThanOrEqualTo(root.get("startDate"), to));
+            return cb.and(ps.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return requests.findAll(spec, Paging.normalise(pageable, REQUEST_DEFAULT, REQUEST_SORTS))
+                .map(this::toRequest);
     }
 
     @PreAuthorize("hasAuthority('timeoff_request.read.own')")
@@ -210,8 +247,7 @@ public class TimeOffService {
                 BigDecimal available = balanceService.balance(r.getEmployeeId(), type).available();
                 boolean force = in != null && Boolean.TRUE.equals(in.force());
                 if (available.compareTo(r.getDays()) < 0 && !force) {
-                    throw new ApiException(ErrorCode.ILLEGAL_STATE,
-                            "Insufficient balance. Approve with force to override.");
+                    throw ApiException.illegalState("Insufficient balance. Approve with force to override.");
                 }
             }
             r.setState("APPROVED");
@@ -239,11 +275,43 @@ public class TimeOffService {
     }
 
     // ---------- holidays ----------
+    /**
+     * Public holidays for a year. These are excluded from scheduled days, so they change both leave
+     * duration and payroll's day count.
+     */
     @PreAuthorize("hasAuthority('timeoff_type.read')")
     @Transactional(readOnly = true)
     public List<HolidayDto> holidays(int year) {
         return holidays.findByDateBetween(LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31))
-                .stream().map(h -> new HolidayDto(h.getId(), h.getDate(), h.getName())).toList();
+                .stream()
+                .sorted(java.util.Comparator.comparing(com.peoplepay360.model.PublicHoliday::getDate))
+                .map(h -> new HolidayDto(h.getId(), h.getDate(), h.getName()))
+                .toList();
+    }
+
+    @PreAuthorize("hasAuthority('timeoff_type.manage')")
+    @Transactional
+    public HolidayDto createHoliday(SaveHoliday in) {
+        if (holidays.existsByDate(in.date())) {
+            throw ApiException.conflict("A public holiday is already recorded on " + in.date() + ".");
+        }
+        com.peoplepay360.model.PublicHoliday h = new com.peoplepay360.model.PublicHoliday();
+        h.setDate(in.date());
+        h.setName(in.name().trim());
+        h = holidays.save(h);
+        audit.record(Channel.UI, "CREATE_HOLIDAY", "public_holiday", h.getId().toString(), "ALLOW",
+                in.date() + " " + in.name(), null, null);
+        return new HolidayDto(h.getId(), h.getDate(), h.getName());
+    }
+
+    @PreAuthorize("hasAuthority('timeoff_type.manage')")
+    @Transactional
+    public void deleteHoliday(Long id) {
+        com.peoplepay360.model.PublicHoliday h = holidays.findById(id)
+                .orElseThrow(() -> ApiException.notFound("holiday"));
+        audit.record(Channel.UI, "DELETE_HOLIDAY", "public_holiday", id.toString(), "ALLOW",
+                h.getDate() + " " + h.getName(), null, null);
+        holidays.delete(h);
     }
 
     // ---------- helpers ----------
@@ -260,7 +328,8 @@ public class TimeOffService {
         }
     }
 
-    public BigDecimal computeDays(Long employeeId, LocalDate start, LocalDate end) {
+    /** Working days between two dates for this employee, excluding weekends and public holidays. */
+    BigDecimal computeDays(Long employeeId, LocalDate start, LocalDate end) {
         if (end.isBefore(start)) throw ApiException.validation("End date must not be before start date.");
         Employee e = employees.findById(employeeId).orElseThrow(() -> ApiException.notFound("employee"));
         WorkingSchedule schedule = e.getWorkingScheduleId() == null ? null :
@@ -277,7 +346,7 @@ public class TimeOffService {
 
     private Long requireEmployee() {
         Long emp = currentUser.employeeId();
-        if (emp == null) throw new ApiException(ErrorCode.ILLEGAL_STATE, "Your account is not linked to an employee.");
+        if (emp == null) throw ApiException.illegalState("Your account is not linked to an employee.");
         return emp;
     }
     private TypeDto toType(TimeOffType t) {

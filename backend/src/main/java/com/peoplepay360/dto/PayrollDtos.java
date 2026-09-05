@@ -21,10 +21,30 @@ public class PayrollDtos {
     public record SaveRule(String name, String code, String category, Integer sequence, String computeType,
                            BigDecimal fixedAmount, BigDecimal percentage, String baseRuleCode, String formula,
                            Boolean active, String description) {}
-    public record ReorderRules(List<Long> orderedRuleIds) {}
-    public record DryRunRequest(List<Long> employeeIds, String period) {}
-    public record DryRunResult(List<DryRunRow> results) {}
-    public record DryRunRow(Long employeeId, String employeeName, BigDecimal currentNet, BigDecimal newNet, BigDecimal delta) {}
+    public record ReorderRules(@NotNull List<Long> orderedRuleIds) {}
+    public record SetRuleActive(@NotNull Boolean active) {}
+
+    /**
+     * @param employeeIds optional; when empty the run covers everyone with a running contract on this
+     *                    structure during the period.
+     */
+    public record DryRunRequest(List<Long> employeeIds, @NotNull String period) {}
+    /**
+     * @param results one row per employee simulated
+     * @param totals  the figures the panel puts on top, plus anyone whose pay would go negative
+     */
+    public record DryRunResult(List<DryRunRow> results, DryRunTotals totals) {}
+    public record DryRunRow(Long employeeId, String employeeName, String employeeNo,
+                            BigDecimal currentNet, BigDecimal newNet, BigDecimal delta,
+                            boolean negative, List<PayslipLineDto> lines) {}
+    /**
+     * @param negativeEmployeeIds employees whose simulated net is below zero; the interface refuses to
+     *                            present the run as safe while this is non-empty
+     * @param skipped             employees that could not be simulated, with the reason
+     */
+    public record DryRunTotals(BigDecimal totalCurrentNet, BigDecimal totalNewNet, BigDecimal totalDelta,
+                               int employeeCount, List<Long> negativeEmployeeIds, List<String> warnings,
+                               List<String> skipped) {}
 
     public record EligibilityRequest(@NotNull Long structureId, @NotNull LocalDate periodStart, @NotNull LocalDate periodEnd) {}
     public record EligibleEmployee(Long employeeId, String employeeNo, String displayName, String departmentName,

@@ -9,12 +9,9 @@ import com.peoplepay360.common.audit.AuditService;
 import com.peoplepay360.common.audit.Channel;
 import com.peoplepay360.model.Contract;
 import com.peoplepay360.repository.ContractRepository;
-import com.peoplepay360.service.ContractResolver;
 import com.peoplepay360.model.Employee;
 import com.peoplepay360.repository.EmployeeRepository;
 import com.peoplepay360.dto.PayrollDtos.*;
-import com.peoplepay360.model.WorkingSchedule;
-import com.peoplepay360.repository.WorkingScheduleRepository;
 import com.peoplepay360.security.CurrentUser;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -45,6 +42,17 @@ import com.peoplepay360.repository.SalaryStructureVersionRepository;
 
 @Service
 public class PayrunService {
+    private static final Map<String, String> PAYRUN_SORTS = Map.of(
+            "periodStart", "periodStart", "periodEnd", "periodEnd", "name", "name", "state", "state",
+            "createdAt", "createdAt", "paidAt", "paidAt");
+    /** Newest period first: the run people want is almost always the most recent one. */
+    private static final org.springframework.data.domain.Sort PAYRUN_DEFAULT_SORT =
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Order.desc("periodStart"),
+                    org.springframework.data.domain.Sort.Order.desc("id"));
+
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(PayrunService.class);
+
     private final PayrunRepository payruns;
     private final PayrunEmployeeRepository payrunEmployees;
     private final PayrunInputRepository inputs;
@@ -57,8 +65,8 @@ public class PayrunService {
     private final EmployeeRepository employees;
     private final ContractRepository contracts;
     private final ContractResolver contractResolver;
-    private final WorkingScheduleRepository schedules;
     private final PayrollInputsBuilder inputsBuilder;
+    private final PayrollVarsBuilder varsBuilder;
     private final RuleEngine ruleEngine;
     private final PayrunChecker checker;
     private final PayslipMailService mailService;
@@ -72,7 +80,7 @@ public class PayrunService {
                          PayslipDeliveryRepository deliveries, SalaryStructureRepository structures,
                          SalaryStructureVersionRepository versions, EmployeeRepository employees,
                          ContractRepository contracts, ContractResolver contractResolver,
-                         WorkingScheduleRepository schedules, PayrollInputsBuilder inputsBuilder,
+                         PayrollInputsBuilder inputsBuilder, PayrollVarsBuilder varsBuilder,
                          RuleEngine ruleEngine, PayrunChecker checker, PayslipMailService mailService,
                          CurrentUser currentUser, AuditService audit, ObjectMapper mapper) {
         this.payruns = payruns;
@@ -87,7 +95,7 @@ public class PayrunService {
         this.employees = employees;
         this.contracts = contracts;
         this.contractResolver = contractResolver;
-        this.schedules = schedules;
+        this.varsBuilder = varsBuilder;
         this.inputsBuilder = inputsBuilder;
         this.ruleEngine = ruleEngine;
         this.checker = checker;
@@ -155,13 +163,24 @@ public class PayrunService {
     @Transactional(readOnly = true)
     public PayrunDto get(Long id) { return toDto(require(id)); }
 
+    /** Payruns, most recent period first, searchable by name. Filters run in SQL, not over the whole table. */
     @PreAuthorize("hasAuthority('payrun.read')")
     @Transactional(readOnly = true)
-    public List<PayrunDto> list(String state, String period) {
-        return payruns.findAll().stream()
-                .filter(p -> state == null || p.getState().equals(state))
-                .filter(p -> period == null || intersectsMonth(p, period))
-                .map(this::toDto).toList();
+    public org.springframework.data.domain.Page<PayrunDto> list(
+            String state, String period, String q, org.springframework.data.domain.Pageable pageable) {
+        LocalDate[] range = period == null || period.isBlank() ? null : Periods.month(period);
+        org.springframework.data.jpa.domain.Specification<Payrun> spec = (root, cq, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> ps = new ArrayList<>();
+            if (state != null && !state.isBlank()) ps.add(cb.equal(root.get("state"), state));
+            if (range != null) {
+                ps.add(cb.lessThanOrEqualTo(root.get("periodStart"), range[1]));
+                ps.add(cb.greaterThanOrEqualTo(root.get("periodEnd"), range[0]));
+            }
+            if (q != null && !q.isBlank()) ps.add(com.peoplepay360.common.Specs.like(cb, root.get("name"), q));
+            return cb.and(ps.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return payruns.findAll(spec, com.peoplepay360.common.Paging.normalise(pageable, PAYRUN_DEFAULT_SORT, PAYRUN_SORTS))
+                .map(this::toDto);
     }
 
     @PreAuthorize("hasAuthority('payrun.update')")
@@ -171,7 +190,7 @@ public class PayrunService {
         if (in.name() != null) p.setName(in.name());
         if (in.employeeIds() != null) {
             if (!"DRAFT".equals(p.getState())) {
-                throw new ApiException(ErrorCode.ILLEGAL_STATE, "Employees can only be changed while the payrun is draft.");
+                throw ApiException.illegalState("Employees can only be changed while the payrun is draft.");
             }
             payrunEmployees.clear(id);
             for (Long empId : in.employeeIds()) payrunEmployees.add(id, empId);
@@ -185,7 +204,7 @@ public class PayrunService {
     public PayrunDto compute(Long id) {
         Payrun p = require(id);
         if (!List.of("DRAFT", "COMPUTED").contains(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a draft or computed payrun can be computed.");
+            throw ApiException.illegalState("Only a draft or computed payrun can be computed.");
         }
         // preserve overridden issues
         Map<String, String> overridden = new HashMap<>();
@@ -233,7 +252,7 @@ public class PayrunService {
                 inputs.save(pi);
             }
 
-            Map<String, Double> vars = buildVars(contract, e, effective);
+            Map<String, Double> vars = varsBuilder.build(contract, e, effective);
             RuleEngine.Result result = ruleEngine.compute(structure.getRules(), vars);
 
             Payslip slip = new Payslip();
@@ -277,8 +296,15 @@ public class PayrunService {
         SalaryStructureVersion v = new SalaryStructureVersion();
         v.setStructureId(structure.getId());
         v.setVersionNo((int) versions.countByStructureId(structure.getId()) + 1);
-        try { v.setSnapshot(mapper.writeValueAsString(structure.getRules())); }
-        catch (Exception ex) { v.setSnapshot("[]"); }
+        // The snapshot is what explains an old payslip after the rules move on, so a failure to write
+        // it is worth knowing about even though it must not fail the payrun.
+        try {
+            v.setSnapshot(mapper.writeValueAsString(structure.getRules()));
+        } catch (Exception ex) {
+            log.warn("Could not snapshot structure {} for payrun {}: {}",
+                    structure.getId(), p.getId(), ex.getMessage());
+            v.setSnapshot("[]");
+        }
         versions.save(v);
 
         // checks
@@ -301,7 +327,10 @@ public class PayrunService {
     @PreAuthorize("hasAuthority('payrun.read')")
     @Transactional(readOnly = true)
     public List<PayrunIssueDto> issues(Long payrunId, String severity, String status) {
-        return issues.findByPayrunId(payrunId).stream()
+        List<PayrunIssue> rows = status == null || status.isBlank()
+                ? issues.findByPayrunId(payrunId)
+                : issues.findByPayrunIdAndStatus(payrunId, status);
+        return rows.stream()
                 .filter(i -> severity == null || i.getSeverity().equals(severity))
                 .filter(i -> status == null || i.getStatus().equals(status))
                 .map(this::toIssueDto).toList();
@@ -329,7 +358,7 @@ public class PayrunService {
     public PayrunDto validate(Long id) {
         Payrun p = require(id);
         if (!"COMPUTED".equals(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a computed payrun can be validated.");
+            throw ApiException.illegalState("Only a computed payrun can be validated.");
         }
         List<PayrunIssue> blockers = issues.findByPayrunIdAndSeverityAndStatus(id, "BLOCKER", "OPEN");
         if (!blockers.isEmpty()) {
@@ -348,7 +377,7 @@ public class PayrunService {
     public PayrunDto pay(Long id, PayRequest in) {
         Payrun p = require(id);
         if (!"VALIDATED".equals(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a validated payrun can be marked paid.");
+            throw ApiException.illegalState("Only a validated payrun can be marked paid.");
         }
         p.setState("PAID");
         p.setPaidBy(currentUser.userId());
@@ -363,7 +392,7 @@ public class PayrunService {
     public SendResult send(Long id) {
         Payrun p = require(id);
         if (!List.of("PAID", "SENT").contains(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a paid payrun can send payslips.");
+            throw ApiException.illegalState("Only a paid payrun can send payslips.");
         }
         List<Payslip> slips = payslips.findByPayrunId(id);
         int queued = 0, skipped = 0;
@@ -381,7 +410,7 @@ public class PayrunService {
     public void cancel(Long id) {
         Payrun p = require(id);
         if (!List.of("DRAFT", "COMPUTED").contains(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Only a draft or computed payrun can be cancelled.");
+            throw ApiException.illegalState("Only a draft or computed payrun can be cancelled.");
         }
         payslips.deleteByPayrunId(id);
         p.setState("CANCELLED");
@@ -393,7 +422,7 @@ public class PayrunService {
     public void addInput(Long id, PayInput in) {
         Payrun p = require(id);
         if (!List.of("DRAFT", "COMPUTED").contains(p.getState())) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE, "Inputs can only be added before validation.");
+            throw ApiException.illegalState("Inputs can only be added before validation.");
         }
         PayrunInput pi = inputs.findByPayrunIdAndEmployeeId(id, in.employeeId()).stream()
                 .filter(x -> x.getCode().equals(in.code()) && "MANUAL".equals(x.getSource()))
@@ -407,47 +436,17 @@ public class PayrunService {
     }
 
     // ---------- helpers ----------
-    private Map<String, Double> buildVars(Contract contract, Employee e, Map<String, BigDecimal> effective) {
-        Map<String, Double> vars = new HashMap<>();
-        vars.put("WAGE", contract.getWage().doubleValue());
-        for (Map.Entry<String, BigDecimal> en : effective.entrySet()) {
-            vars.put(en.getKey(), en.getValue().doubleValue());
-            vars.put("I_" + en.getKey(), en.getValue().doubleValue());
-        }
-        double hourly;
-        if ("HOURLY".equals(contract.getWageType())) {
-            hourly = contract.getWage().doubleValue();
-        } else {
-            BigDecimal weekly = weeklyHours(contract, e);
-            double monthlyHours = weekly.doubleValue() * 52.0 / 12.0;
-            hourly = monthlyHours > 0 ? contract.getWage().doubleValue() / monthlyHours : 0;
-        }
-        vars.put("HOURLY_RATE", BigDecimal.valueOf(hourly).setScale(4, RoundingMode.HALF_UP).doubleValue());
-        return vars;
-    }
-    private BigDecimal weeklyHours(Contract contract, Employee e) {
-        Long sid = contract.getWorkingScheduleId() != null ? contract.getWorkingScheduleId() : e.getWorkingScheduleId();
-        if (sid == null) return BigDecimal.ZERO;
-        return schedules.findById(sid).map(WorkingSchedule::getWeeklyHours).orElse(BigDecimal.ZERO);
-    }
+    /**
+     * Guards the one invariant every payslip must satisfy: net equals gross minus deductions.
+     * Gross itself is deliberately not asserted against basic plus allowances, because a structure
+     * is allowed an explicit GROSS rule that computes something else.
+     */
     private void assertTotals(RuleEngine.Result r) {
-        BigDecimal lineSum = r.lines().stream()
-                .filter(l -> List.of("BASIC", "ALLOWANCE").contains(l.category()))
-                .map(RuleEngine.Line::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal expectedGross = Money.scale(r.basic().add(r.allowances()));
-        // gross must equal basic + allowances when no explicit GROSS rule adjusts it beyond that
-        if (r.gross().compareTo(expectedGross) != 0 && r.gross().compareTo(lineSum) != 0) {
-            // allow explicit GROSS rules; only fail if net is inconsistent with gross - deductions
-        }
         BigDecimal expectedNet = Money.scale(r.gross().subtract(r.deductions()));
         if (r.net().compareTo(expectedNet) != 0) {
-            throw new ApiException(ErrorCode.ILLEGAL_STATE,
+            throw ApiException.illegalState(
                     "Payslip totals are inconsistent: net " + r.net() + " != gross - deductions " + expectedNet);
         }
-    }
-    private boolean intersectsMonth(Payrun p, String period) {
-        LocalDate[] r = Periods.month(period);
-        return !p.getPeriodStart().isAfter(r[1]) && !p.getPeriodEnd().isBefore(r[0]);
     }
     private String stateOf(Long payrunId) {
         return payruns.findById(payrunId).map(Payrun::getState).orElse("CANCELLED");

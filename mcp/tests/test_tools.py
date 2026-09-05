@@ -25,16 +25,24 @@ def test_registry_contains_13_tools():
     assert expected.issubset(tool_names)
 
 
-def test_registry_permission_filtering(employee_claims):
-    allowed_tools = registry.list_for(employee_claims)
-    allowed_names = {t.name for t in allowed_tools}
-    # Employee has timeoff.read and attendance.read and payslip.read
-    assert "timeoff_get_balance" in allowed_names
-    assert "attendance_list_exceptions" in allowed_names
-    assert "payslip_list" in allowed_names
-    # Employee does NOT have payroll.read (admin/payroll mgr only)
-    assert "payrun_list" not in allowed_names
-    assert "payrun_list_issues" not in allowed_names
+def test_an_employee_is_offered_only_their_own_records(employee_claims):
+    allowed = {t.name for t in registry.list_for(employee_claims)}
+    # Their own leave balance and payslips: yes.
+    assert "timeoff_get_balance" in allowed
+    assert "payslip_list" in allowed
+    assert "payslip_explain" in allowed
+    assert "whoami" in allowed
+    # Everybody else's records, and payroll operations: no.
+    assert "payrun_list" not in allowed
+    assert "payrun_list_issues" not in allowed
+    assert "employee_search" not in allowed
+    assert "attendance_list_exceptions" not in allowed
+    assert "dashboard_kpis" not in allowed
+
+
+def test_an_administrator_is_offered_every_tool(admin_claims):
+    allowed = {t.name for t in registry.list_for(admin_claims)}
+    assert len(allowed) == len(registry.list_all())
 
 
 @pytest.mark.asyncio
