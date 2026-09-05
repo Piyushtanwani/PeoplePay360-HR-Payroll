@@ -160,12 +160,45 @@ public class DemoSeeder implements ApplicationRunner {
         // grant chat.access to Sam (employee), granted by admin
         grantChat(samUserId, adminUserId);
 
-        // 35 more placeholder employees with running contracts and bank accounts
+        // 35 more employees with real names, department-appropriate job titles, running
+        // contracts and bank accounts.
+        String[] placeholderNames = {
+                "Ethan Walker", "Priya Sharma", "Marcus Bennett", "Aisha Rahman", "Liam Foster",
+                "Neha Kapoor", "Oliver Grant", "Fatima Ali", "Noah Reyes", "Zara Khan",
+                "Lucas Martin", "Ananya Iyer", "Henry Coleman", "Divya Nair", "Mason Clarke",
+                "Sofia Rossi", "Arjun Verma", "Grace Turner", "Ibrahim Siddiqui", "Chloe Anderson",
+                "Ravi Krishnan", "Emma Whitfield", "Daniel Osei", "Meera Pillai", "Jack Sullivan",
+                "Layla Hassan", "Samuel Okafor", "Isabella Conti", "Rohan Malhotra", "Amara Okonkwo",
+                "William Hughes", "Nadia Farouk", "Benjamin Cross", "Kavya Reddy", "Adam Whitlock",
+        };
+        Map<String, List<String>> titlesByDept = Map.of(
+                "Operations", List.of("Operations Analyst", "Warehouse Supervisor", "Logistics Coordinator",
+                        "Operations Manager", "Procurement Officer", "Facilities Coordinator",
+                        "Quality Control Inspector", "Supply Chain Analyst"),
+                "Engineering", List.of("Software Engineer", "QA Engineer", "DevOps Engineer",
+                        "Engineering Manager", "Frontend Developer", "Backend Developer",
+                        "Site Reliability Engineer", "Data Engineer", "Mobile Developer"),
+                "Finance", List.of("Accountant", "Financial Analyst", "Accounts Payable Specialist",
+                        "Finance Manager", "Payroll Specialist", "Tax Analyst", "Budget Analyst",
+                        "Treasury Analyst", "Bookkeeper"),
+                "Sales", List.of("Sales Executive", "Account Manager", "Business Development Rep",
+                        "Sales Manager", "Key Account Manager", "Inside Sales Rep",
+                        "Regional Sales Manager", "Customer Success Manager", "Sales Operations Analyst"));
+        Map<String, Integer> titleIndexByDept = new HashMap<>();
+
         for (int i = 1; i <= 35; i++) {
-            Department d = depts.get(deptNames[i % 4]);
-            Employee e = newEmployee("Placeholder " + i, d.getId(), schedule.getId(),
-                    "placeholder" + i + "@example.com");
-            runningContract(e, structure, schedule, new BigDecimal(String.valueOf(40000 + i * 500)), d.getId());
+            String deptName = deptNames[i % 4];
+            Department d = depts.get(deptName);
+            String name = placeholderNames[i - 1];
+            String email = name.toLowerCase().replace(" ", ".") + "@example.com";
+            List<String> titles = titlesByDept.get(deptName);
+            int titleIdx = titleIndexByDept.merge(deptName, 1, Integer::sum) - 1;
+            String jobTitle = titles.get(titleIdx % titles.size());
+
+            Employee e = newEmployee(name, d.getId(), schedule.getId(), email);
+            e.setJobTitle(jobTitle);
+            e = employees.save(e);
+            runningContract(e, structure, schedule, new BigDecimal(String.valueOf(40000 + i * 500)), d.getId(), jobTitle);
             if (i != 7) bank(e); // one employee without bank details for the blocker demo
         }
 
@@ -372,6 +405,10 @@ public class DemoSeeder implements ApplicationRunner {
         return employees.save(e);
     }
     private void runningContract(Employee e, SalaryStructure s, WorkingSchedule sch, BigDecimal wage, Long deptId) {
+        runningContract(e, s, sch, wage, deptId, "Staff");
+    }
+    private void runningContract(Employee e, SalaryStructure s, WorkingSchedule sch, BigDecimal wage, Long deptId,
+                                 String jobTitle) {
         Contract c = new Contract();
         c.setReference(String.format("C-%04d", contracts.count() + 1));
         c.setEmployeeId(e.getId());
@@ -381,7 +418,7 @@ public class DemoSeeder implements ApplicationRunner {
         c.setState("RUNNING");
         c.setWorkingScheduleId(sch.getId());
         c.setSalaryStructureId(s.getId());
-        c.setJobTitle("Staff");
+        c.setJobTitle(jobTitle);
         c.setDepartmentId(deptId);
         contracts.save(c);
     }
