@@ -83,7 +83,7 @@ async def payrun_list_tool(
 
     rows_for_model = model_summary(
         payruns,
-        ["name", "state", "periodStart", "periodEnd", "employeeCount", "payslipCount", "totalNet",
+        ["id", "name", "state", "periodStart", "periodEnd", "employeeCount", "payslipCount", "totalNet",
          "blockerCount", "warningCount"],
     )
     summary_text = (

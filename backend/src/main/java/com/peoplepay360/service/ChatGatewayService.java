@@ -126,6 +126,11 @@ public class ChatGatewayService {
      */
     @Transactional
     public MessageDto sendMessage(Long sessionId, String content, Long aiProfileId) {
+        return sendMessage(sessionId, content, aiProfileId, null);
+    }
+
+    @Transactional
+    public MessageDto sendMessage(Long sessionId, String content, Long aiProfileId, Long editMessageId) {
         ChatSession s = requireSession(sessionId);
         ownershipGuard.requireOwnUserOr404(s.getUserId(), null, "chat_session", sessionId);
         if (!rateLimiter.tryConsume(currentUser.userId())) {
@@ -133,14 +138,52 @@ public class ChatGatewayService {
         }
         AppUser user = users.findById(currentUser.userId()).orElseThrow(() -> ApiException.notFound("user"));
 
-        ChatMessage userMsg = new ChatMessage();
-        userMsg.setSessionId(sessionId);
-        userMsg.setRole("user");
-        userMsg.setContent(content);
-        messages.save(userMsg);
+        ChatMessage userMsg;
+        if (editMessageId != null) {
+            ChatMessage existing = messages.findById(editMessageId)
+                    .filter(m -> m.getSessionId().equals(sessionId) && "user".equals(m.getRole()))
+                    .orElse(null);
+            if (existing != null) {
+                List<ChatMessage> all = messages.findBySessionIdOrderByCreatedAtAsc(sessionId);
+                boolean found = false;
+                for (ChatMessage m : all) {
+                    if (m.getId().equals(editMessageId)) {
+                        found = true;
+                        continue;
+                    }
+                    if (found) {
+                        List<ChatToolCall> tc = toolCalls.findByMessageId(m.getId());
+                        if (!tc.isEmpty()) {
+                            toolCalls.deleteAll(tc);
+                        }
+                        messages.delete(m);
+                    }
+                }
+                toolCalls.flush();
+                messages.flush();
+
+                existing.setContent(content);
+                userMsg = messages.save(existing);
+            } else {
+                userMsg = new ChatMessage();
+                userMsg.setSessionId(sessionId);
+                userMsg.setRole("user");
+                userMsg.setContent(content);
+                userMsg = messages.save(userMsg);
+            }
+        } else {
+            userMsg = new ChatMessage();
+            userMsg.setSessionId(sessionId);
+            userMsg.setRole("user");
+            userMsg.setContent(content);
+            userMsg = messages.save(userMsg);
+        }
+
         // Name the conversation after its first question, so the history list is scannable.
-        if (s.getTitle() == null || s.getTitle().isBlank() || "New conversation".equals(s.getTitle())) {
+        List<ChatMessage> remaining = messages.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        if (s.getTitle() == null || s.getTitle().isBlank() || "New conversation".equals(s.getTitle()) || remaining.size() <= 1) {
             s.setTitle(content.length() > 60 ? content.substring(0, 57) + "..." : content);
+            sessions.save(s);
         }
 
         AiProfile profile = aiProfiles.resolveForChat(aiProfileId);

@@ -1,8 +1,9 @@
 spring.application.name=peoplepay360-backend
 
+# Database connection
 spring.datasource.url=${DB_URL:jdbc:postgresql://localhost:5432/peoplepay}
 spring.datasource.username=${DB_USER:peoplepay}
-spring.datasource.password=${DB_PASSWORD:peoplepay}
+spring.datasource.password=${DB_PASSWORD:your-db-password}
 spring.datasource.hikari.maximum-pool-size=10
 spring.datasource.hikari.leak-detection-threshold=30000
 
@@ -19,10 +20,11 @@ spring.flyway.enabled=true
 spring.flyway.validate-on-migrate=true
 spring.flyway.baseline-on-migrate=false
 
+# Mail configuration
 spring.mail.host=${MAIL_HOST:localhost}
 spring.mail.port=${MAIL_PORT:1025}
-spring.mail.username=${MAIL_USERNAME:}
-spring.mail.password=${MAIL_PASSWORD:}
+spring.mail.username=${MAIL_USERNAME:your-email@example.com}
+spring.mail.password=${MAIL_PASSWORD:your-mail-app-password}
 # Auth and STARTTLS are off for the local mail catcher and on for a real relay.
 spring.mail.properties.mail.smtp.auth=${MAIL_AUTH:false}
 spring.mail.properties.mail.smtp.starttls.enable=${MAIL_STARTTLS:false}
@@ -48,6 +50,7 @@ management.health.mail.enabled=false
 springdoc.swagger-ui.path=/swagger-ui.html
 springdoc.api-docs.path=/v3/api-docs
 
+# Security and MCP integration
 app.jwt.issuer=${JWT_ISSUER:peoplepay360}
 app.jwt.rsa-private-key-pem=${JWT_RSA_PRIVATE_KEY_PEM:}
 app.jwt.access-ttl-seconds=${JWT_ACCESS_TTL_SECONDS:43200}

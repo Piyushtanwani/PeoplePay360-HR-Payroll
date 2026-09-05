@@ -23,9 +23,10 @@ import type { Attendance, AttendanceException } from '@/api/types'
 export function AttendancePage() {
   const { can } = useAuth()
   const seesEveryone = can('attendance.read.all')
+  const canCheckIn = can('attendance.create.own')
 
   return (
-    <>
+    <div className="grid gap-4">
       <PageHeader
         title="Attendance"
         description={
@@ -35,20 +36,19 @@ export function AttendancePage() {
         }
         help={<AttendanceHelp />}
       />
+      {canCheckIn ? <QuickAction /> : null}
       {seesEveryone ? <HrAttendance /> : <OwnAttendance />}
-    </>
+    </div>
   )
 }
 
-/** What an employee sees: the check-in card and their own history. */
+/** What an employee sees: their own history. */
 function OwnAttendance() {
   const table = useTableState({ defaultSort: 'workDate', defaultDir: 'desc' })
   const list = useAttendance(table.params)
 
   return (
-    <div className="grid gap-4">
-      <QuickAction />
-      <Card>
+    <Card>
         <DataTable
           rows={list.data?.content ?? []}
           columns={ownColumns}
@@ -66,7 +66,6 @@ function OwnAttendance() {
           }}
         />
       </Card>
-    </div>
   )
 }
 

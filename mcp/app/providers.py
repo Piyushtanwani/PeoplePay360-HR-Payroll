@@ -179,6 +179,8 @@ class ProviderManager:
                 f"{model} took too long to answer. It may be loading for the first time; "
                 "try again, or choose a smaller model in AI Settings."
             )
+        if "402" in text or "credits" in text.lower():
+            return "The AI provider account requires more credits or lower max_tokens."
         if "401" in text or "403" in text or "api key" in text.lower():
             return "The provider rejected the API key. Check it in AI Settings."
         if "404" in text or "not found" in text.lower():
@@ -252,19 +254,32 @@ class ProviderManager:
         if any(w in last_user_msg for w in ["dashboard", "kpi", "total salary expenditure", "expenditure"]) and "dashboard_kpis" in available_tool_names:
             return "", [{"id": "call_dkpi", "name": "dashboard_kpis", "arguments": {}}]
 
-        # 10. Expiring contracts
+        # 10. Contracts: current active contract or expiring contracts
+        if "contract_get_current" in available_tool_names and any(w in last_user_msg for w in ["my contract", "current contract", "key terms", "renewal date", "terms and renewal", "contract terms"]):
+            return "", [{"id": "call_cgc", "name": "contract_get_current", "arguments": {}}]
+
         if any(w in last_user_msg for w in ["contract", "expiring"]) and "contract_list_expiring" in available_tool_names:
             return "", [{"id": "call_cle", "name": "contract_list_expiring", "arguments": {"daysAhead": 60}}]
+
+        if "contract_get_current" in available_tool_names and "contract" in last_user_msg:
+            return "", [{"id": "call_cgc", "name": "contract_get_current", "arguments": {}}]
 
         # 11. Compare candidates
         if any(w in last_user_msg for w in ["candidate", "applicant", "recruitment"]) and "candidate_compare" in available_tool_names:
             return "", [{"id": "call_cc", "name": "candidate_compare", "arguments": {"openingId": 1, "candidateIds": [1, 2]}}]
 
         # 12. Employee summary / search
-        if "employee" in last_user_msg or "profile" in last_user_msg:
-            match = re.search(r"\b(\d+)\b", last_user_msg)
-            if match and "employee_summary" in available_tool_names:
-                return "", [{"id": "call_esum", "name": "employee_summary", "arguments": {"employeeId": int(match.group(1))}}]
+        if any(w in last_user_msg for w in ["employee", "profile", "summary", "360", "who is"]):
+            digits = [d for d in re.findall(r"\b(\d+)\b", last_user_msg) if d != "360"]
+            if digits and "employee_summary" in available_tool_names:
+                return "", [{"id": "call_esum", "name": "employee_summary", "arguments": {"employeeId": int(digits[0])}}]
+            if "employee_summary" in available_tool_names:
+                target = None
+                for marker in ["summary for", "summary of", "profile for", "profile of", "about"]:
+                    if marker in last_user_msg:
+                        target = last_user_msg.split(marker, 1)[1].strip(" .?!")
+                        break
+                return "", [{"id": "call_esum", "name": "employee_summary", "arguments": {"employeeId": target or last_user_msg}}]
             if "employee_search" in available_tool_names:
                 return "", [{"id": "call_es", "name": "employee_search", "arguments": {}}]
 
@@ -308,6 +323,9 @@ class ProviderManager:
                 "The lookups returned nothing I can summarise without the language model. "
                 "The records themselves are below."
             )
+
+        if any("Access Restricted" in line for line in lines):
+            return "\n\n".join(lines)
 
         body = "\n".join(f"- {line}" if len(lines) > 1 else line for line in lines)
         if degraded:

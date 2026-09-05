@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from app.backend import backend_client
 from app.blocks import kpi_block, table_block
@@ -14,8 +14,8 @@ from app.views import format_tool_result, rows_of, model_summary
     parameters={
         "type": "object",
         "properties": {
-            "period": {"type": "string", "description": "The month in YYYY-MM format, e.g. '2026-08' or '2026-09'. Defaults to current month if omitted."},
-            "type": {"type": "string", "description": "Filter by exception type, e.g. MISSING_CHECK_OUT, LATE_CHECK_IN, EARLY_CHECK_OUT"},
+            "period": {"type": "string", "description": "The month in YYYY-MM format, e.g. '2026-09'. Defaults to current month if omitted."},
+            "type": {"type": "string", "description": "Filter by exception type: MISSING_CHECKOUT, LATE, OVERTIME, or ABSENT."},
             "resolved": {"type": "boolean", "description": "Filter by resolution status. Default is False (unresolved only)."},
         },
         "required": [],
@@ -27,19 +27,55 @@ async def attendance_list_exceptions_tool(
     token: str,
     claims: TokenClaims,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[str], Optional[str]]:
+    now = datetime.now()
+    cur_period = f"{now.year}-{now.month:02d}"
+
     period = args.get("period")
     if not period:
-        now = datetime.now()
-        period = f"{now.year}-{now.month:02d}"
+        period = cur_period
+    else:
+        # Sanitize outdated years (e.g. if the LLM defaults to 2023 or 2024)
+        try:
+            p_year = int(period.split("-")[0])
+            if p_year < 2026:
+                period = cur_period
+        except Exception:
+            period = cur_period
 
-    params: Dict[str, Any] = {"period": period}
-    if args.get("type"):
-        params["type"] = args["type"]
+    params: Dict[str, Any] = {"period": period, "size": 100}
+
+    # Normalize type parameter if provided
+    raw_type = args.get("type")
+    if raw_type:
+        norm_type = raw_type.upper().strip()
+        if norm_type in ("MISSING_CHECK_OUT", "MISSING_CHECKOUT", "CHECKOUT", "MISSING_OUT"):
+            params["type"] = "MISSING_CHECKOUT"
+        elif norm_type in ("LATE_CHECK_IN", "LATE", "LATE_IN"):
+            params["type"] = "LATE"
+        elif norm_type in ("OVERTIME", "OVER_TIME", "OT"):
+            params["type"] = "OVERTIME"
+        elif norm_type in ("ABSENT", "ABSENCE"):
+            params["type"] = "ABSENT"
+        else:
+            params["type"] = norm_type
+
     if args.get("resolved") is not None:
         params["resolved"] = args["resolved"]
 
     data = await backend_client.get("/api/attendance/exceptions", params=params, token=token)
     rows_from_backend = rows_of(data)
+
+    # If current month has no exceptions, fall back to previous month (e.g. 2026-08)
+    if not rows_from_backend and period == cur_period:
+        prev_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        fallback_params = dict(params)
+        fallback_params["period"] = prev_month
+        prev_data = await backend_client.get("/api/attendance/exceptions", params=fallback_params, token=token)
+        prev_rows = rows_of(prev_data)
+        if prev_rows:
+            rows_from_backend = prev_rows
+            period = prev_month
+
     if not rows_from_backend:
         return f"No attendance exceptions found for period {period}.", [], "attendance_exception", None
 

@@ -2,7 +2,7 @@ import * as React from 'react'
 import { LogIn, LogOut } from 'lucide-react'
 import { useAttendanceToday, useCheckInOut } from '@/api/hooks'
 import { Button, Card, CardHeader, Chip, Spinner, StatusBadge } from '@/components/ui'
-import { fmtTime, minutesToHours } from '@/lib/format'
+import { fmtTime } from '@/lib/format'
 
 /** Own check-in and check-out, with a live count of how long the current entry has been open. */
 export function QuickAction() {
@@ -14,11 +14,16 @@ export function QuickAction() {
   React.useEffect(() => {
     if (!open?.checkIn) { setElapsed(''); return }
     const tick = () => {
-      const minutes = Math.floor((Date.now() - new Date(open.checkIn!).getTime()) / 60000)
-      setElapsed(minutesToHours(minutes))
+      const diffMs = Math.max(0, Date.now() - new Date(open.checkIn!).getTime())
+      const totalSeconds = Math.floor(diffMs / 1000)
+      const hours = Math.floor(totalSeconds / 3600)
+      const minutes = Math.floor((totalSeconds % 3600) / 60)
+      const seconds = totalSeconds % 60
+      const pad = (n: number) => String(n).padStart(2, '0')
+      setElapsed(`${hours}h ${pad(minutes)}m ${pad(seconds)}s`)
     }
     tick()
-    const timer = window.setInterval(tick, 30_000)
+    const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
   }, [open?.checkIn])
 
@@ -34,7 +39,7 @@ export function QuickAction() {
             <p className="flex items-center gap-2 text-sm2 text-label2"><Spinner /> Loading…</p>
           ) : open ? (
             <>
-              <p className="tnum text-d2 font-semibold">{elapsed || '0h00'}</p>
+              <p className="tnum text-d2 font-semibold">{elapsed || '0h 00m 00s'}</p>
               <p className="text-sm2 text-label2">Since {fmtTime(open.checkIn)}</p>
             </>
           ) : (

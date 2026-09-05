@@ -67,9 +67,16 @@ public class ContractService {
      * <p>EXPIRED is a derived state, not a stored one, so filtering on it means running contracts whose
      * end date has passed rather than a column comparison.
      */
-    @PreAuthorize("hasAuthority('contract.read.all')")
+    @PreAuthorize("hasAnyAuthority('contract.read.all', 'contract.read.own')")
     @Transactional(readOnly = true)
     public Page<ContractDto> list(Long employeeId, String state, LocalDate endsBefore, String q, Pageable pageable) {
+        boolean full = currentUser.hasAuthority("contract.read.all");
+        if (!full) {
+            Long ownEmpId = currentUser.employeeId();
+            if (ownEmpId == null) return Page.empty(pageable);
+            employeeId = ownEmpId;
+        }
+
         List<Long> matchedEmployees = null;
         if (q != null && !q.isBlank()) {
             matchedEmployees = employees.findIdsMatching("%" + q.toLowerCase() + "%");
@@ -77,9 +84,10 @@ public class ContractService {
         final List<Long> byName = matchedEmployees;
         LocalDate today = LocalDate.now();
 
+        final Long targetEmployeeId = employeeId;
         Specification<Contract> spec = (root, cq, cb) -> {
             List<Predicate> ps = new ArrayList<>();
-            if (employeeId != null) ps.add(cb.equal(root.get("employeeId"), employeeId));
+            if (targetEmployeeId != null) ps.add(cb.equal(root.get("employeeId"), targetEmployeeId));
             if (state != null && !state.isBlank()) {
                 if ("EXPIRED".equals(state)) {
                     ps.add(cb.equal(root.get("state"), "RUNNING"));
@@ -104,7 +112,7 @@ public class ContractService {
         Map<Long, Employee> employeeById = new HashMap<>();
         employees.findAllById(page.getContent().stream().map(Contract::getEmployeeId).collect(Collectors.toSet()))
                 .forEach(e -> employeeById.put(e.getId(), e));
-        return page.map(c -> toDto(c, true, employeeById.get(c.getEmployeeId())));
+        return page.map(c -> toDto(c, full, employeeById.get(c.getEmployeeId())));
     }
 
     @PreAuthorize("hasAuthority('contract.read.own')")

@@ -30,7 +30,8 @@ public class ChatController {
     public MessageDto send(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         String content = String.valueOf(body.getOrDefault("content", ""));
         Long aiProfileId = body.get("aiProfileId") instanceof Number n ? n.longValue() : null;
-        return service.sendMessage(id, content, aiProfileId);
+        Long editMessageId = body.get("editMessageId") instanceof Number n ? n.longValue() : null;
+        return service.sendMessage(id, content, aiProfileId, editMessageId);
     }
     @GetMapping("/capabilities")
     public Map<String, Object> capabilities() { return service.capabilities(); }
