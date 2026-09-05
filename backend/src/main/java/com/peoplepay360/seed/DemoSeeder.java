@@ -1,0 +1,358 @@
+package com.peoplepay360.seed;
+
+import com.peoplepay360.contract.Contract;
+import com.peoplepay360.contract.ContractRepository;
+import com.peoplepay360.employee.*;
+import com.peoplepay360.identity.*;
+import com.peoplepay360.payroll.*;
+import com.peoplepay360.recruitment.*;
+import com.peoplepay360.schedule.*;
+import com.peoplepay360.timeoff.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.util.*;
+
+/** Seeds a deterministic demo dataset on first startup (demo profile) and on reset. */
+@Component
+@Profile("demo")
+public class DemoSeeder implements ApplicationRunner {
+    private static final Logger log = LoggerFactory.getLogger(DemoSeeder.class);
+
+    private final AppUserRepository users;
+    private final RoleRepository roles;
+    private final UserPermissionGrantRepository grants;
+    private final DepartmentRepository departments;
+    private final EmployeeRepository employees;
+    private final EmployeeBankAccountRepository banks;
+    private final WorkingScheduleRepository schedules;
+    private final ContractRepository contracts;
+    private final SalaryStructureRepository structures;
+    private final SalaryRuleRepository rules;
+    private final TimeOffTypeRepository types;
+    private final TimeOffAllocationRepository allocations;
+    private final TimeOffRequestRepository requests;
+    private final PublicHolidayRepository holidays;
+    private final JobOpeningRepository openings;
+    private final CandidateRepository candidates;
+    private final CandidateIdentityRepository identities;
+    private final PasswordEncoder encoder;
+    private final SeedPayrunRunner payrunRunner;
+
+    public DemoSeeder(AppUserRepository users, RoleRepository roles, UserPermissionGrantRepository grants,
+                      DepartmentRepository departments, EmployeeRepository employees, EmployeeBankAccountRepository banks,
+                      WorkingScheduleRepository schedules, ContractRepository contracts,
+                      SalaryStructureRepository structures, SalaryRuleRepository rules, TimeOffTypeRepository types,
+                      TimeOffAllocationRepository allocations, TimeOffRequestRepository requests,
+                      PublicHolidayRepository holidays, JobOpeningRepository openings, CandidateRepository candidates,
+                      CandidateIdentityRepository identities, PasswordEncoder encoder, SeedPayrunRunner payrunRunner) {
+        this.users = users;
+        this.roles = roles;
+        this.grants = grants;
+        this.departments = departments;
+        this.employees = employees;
+        this.banks = banks;
+        this.schedules = schedules;
+        this.contracts = contracts;
+        this.structures = structures;
+        this.rules = rules;
+        this.types = types;
+        this.allocations = allocations;
+        this.requests = requests;
+        this.holidays = holidays;
+        this.openings = openings;
+        this.candidates = candidates;
+        this.identities = identities;
+        this.encoder = encoder;
+        this.payrunRunner = payrunRunner;
+    }
+
+    @Override
+    @Transactional
+    public void run(ApplicationArguments args) {
+        if (users.count() > 0) {
+            log.info("Demo data already present; skipping seed.");
+            return;
+        }
+        log.info("Seeding demo data...");
+        seed();
+        log.info("Demo data seeded. Log in as admin@peoplepay.local / Admin@12345");
+    }
+
+    void seed() {
+        WorkingSchedule schedule = seedSchedule();
+        SalaryStructure structure = seedStructure();
+        Map<String, Department> depts = seedDepartments();
+        seedTypesAndHolidays();
+
+        // Demo role accounts
+        List<Object[]> demoAccounts = List.of(
+                new Object[]{"admin@peoplepay.local", "Admin@12345", "ADMIN", "Taylor Brooks", true},
+                new Object[]{"hr@peoplepay.local", "Hr@12345", "HR_MANAGER", "Morgan Diaz", false},
+                new Object[]{"payroll@peoplepay.local", "Payroll@12345", "HR_PAYROLL_USER", "Jordan Lee", false},
+                new Object[]{"payroll.manager@peoplepay.local", "Manager@12345", "HR_PAYROLL_MANAGER", "Riley Chen", false},
+                new Object[]{"employee@peoplepay.local", "Employee@12345", "EMPLOYEE", "Sam Patel", false});
+
+        Long samEmployeeId = null;
+        Long adminUserId = null;
+        Long samUserId = null;
+        int idx = 0;
+        String[] deptNames = {"Operations", "Engineering", "Finance", "Sales"};
+        for (Object[] acc : demoAccounts) {
+            Department d = depts.get(deptNames[idx % 4]);
+            Employee e = newEmployee((String) acc[3], d.getId(), schedule.getId(),
+                    ((String) acc[3]).toLowerCase().replace(" ", ".") + "@example.com");
+            runningContract(e, structure, schedule, new BigDecimal("50000"), d.getId());
+            bank(e);
+            AppUser u = newUser((String) acc[0], (String) acc[1], (String) acc[2], (String) acc[3], e.getId(), (boolean) acc[4]);
+            e.setUserId(u.getId());
+            if ("Taylor Brooks".equals(acc[3])) adminUserId = u.getId();
+            if ("Sam Patel".equals(acc[3])) { samEmployeeId = e.getId(); samUserId = u.getId(); }
+            idx++;
+        }
+
+        // grant chat.access to Sam (employee), granted by admin
+        grantChat(samUserId, adminUserId);
+
+        // 35 more placeholder employees with running contracts and bank accounts
+        for (int i = 1; i <= 35; i++) {
+            Department d = depts.get(deptNames[i % 4]);
+            Employee e = newEmployee("Placeholder " + i, d.getId(), schedule.getId(),
+                    "placeholder" + i + "@example.com");
+            runningContract(e, structure, schedule, new BigDecimal(String.valueOf(40000 + i * 500)), d.getId());
+            if (i != 7) bank(e); // one employee without bank details for the blocker demo
+        }
+
+        // Sam's leave scenario
+        seedSamLeave(samEmployeeId);
+
+        // Recruitment: Warehouse Supervisor with 3 candidates at OFFER
+        seedRecruitment(depts.get("Operations"), structure, schedule);
+
+        // Historical payruns May, June, July 2026 through the real engine
+        for (int month : new int[]{5, 6, 7}) {
+            LocalDate start = LocalDate.of(2026, month, 1);
+            LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
+            payrunRunner.runHistorical(structure.getId(), start, end, adminUserId);
+        }
+    }
+
+    private WorkingSchedule seedSchedule() {
+        WorkingSchedule s = new WorkingSchedule();
+        s.setName("Standard 37.5h");
+        s.setType("FIXED");
+        BigDecimal total = BigDecimal.ZERO;
+        for (int day = 1; day <= 5; day++) {
+            WorkingScheduleLine l = new WorkingScheduleLine();
+            l.setDayOfWeek(day);
+            l.setStartTime(LocalTime.of(9, 0));
+            l.setEndTime(LocalTime.of(17, 0));
+            l.setBreakMinutes(30);
+            s.getLines().add(l);
+            total = total.add(new BigDecimal("7.5"));
+        }
+        s.setWeeklyHours(total);
+        s = schedules.save(s);
+        for (WorkingScheduleLine l : s.getLines()) l.setScheduleId(s.getId());
+        return schedules.save(s);
+    }
+
+    private SalaryStructure seedStructure() {
+        SalaryStructure s = new SalaryStructure();
+        s.setName("Standard Monthly");
+        s.setCode("STD_MONTHLY");
+        s.setActive(true);
+        s = structures.save(s);
+        addRule(s.getId(), "Basic", "BASIC", "BASIC", 10, "FORMULA", null, null, null, "WAGE");
+        addRule(s.getId(), "House Rent Allowance", "HRA", "ALLOWANCE", 20, "PERCENTAGE", null, new BigDecimal("20"), "BASIC", null);
+        addRule(s.getId(), "Transport", "TRANSPORT", "ALLOWANCE", 30, "FIXED", new BigDecimal("1000"), null, null, null);
+        addRule(s.getId(), "Overtime", "OVERTIME", "ALLOWANCE", 40, "FORMULA", null, null, null, "HOURLY_RATE * 1.5 * OVERTIME_HOURS");
+        addRule(s.getId(), "Gross", "GROSS", "GROSS", 50, "FORMULA", null, null, null, "C_BASIC + C_ALLOWANCE");
+        addRule(s.getId(), "Unpaid Deduction", "UNPAID_DED", "DEDUCTION", 60, "FORMULA", null, null, null, "WAGE / SCHEDULED_DAYS * UNPAID_DAYS");
+        addRule(s.getId(), "Provident Fund", "PF", "DEDUCTION", 70, "PERCENTAGE", null, new BigDecimal("12"), "BASIC", null);
+        addRule(s.getId(), "Tax", "TAX", "DEDUCTION", 80, "FORMULA", null, null, null, "max(0, (R_GROSS - 25000) * 0.10)");
+        addRule(s.getId(), "Net", "NET", "NET", 90, "FORMULA", null, null, null, "C_GROSS - C_DEDUCTION");
+        return structures.findById(s.getId()).orElseThrow();
+    }
+
+    private void addRule(Long structureId, String name, String code, String category, int seq, String type,
+                         BigDecimal fixed, BigDecimal pct, String base, String formula) {
+        SalaryRule r = new SalaryRule();
+        r.setStructureId(structureId);
+        r.setName(name);
+        r.setCode(code);
+        r.setCategory(category);
+        r.setSequence(seq);
+        r.setComputeType(type);
+        r.setFixedAmount(fixed);
+        r.setPercentage(pct);
+        r.setBaseRuleCode(base);
+        r.setFormula(formula);
+        r.setActive(true);
+        rules.save(r);
+    }
+
+    private Map<String, Department> seedDepartments() {
+        Map<String, Department> map = new LinkedHashMap<>();
+        for (String n : new String[]{"Operations", "Engineering", "Finance", "Sales"}) {
+            Department d = new Department();
+            d.setName(n);
+            map.put(n, departments.save(d));
+        }
+        return map;
+    }
+
+    private void seedTypesAndHolidays() {
+        type("Annual Leave", "ANNUAL", true, true, "#34C759");
+        type("Sick Leave", "SICK", true, true, "#FF9F0A");
+        type("Unpaid Leave", "UNPAID", false, false, "#FF453A");
+        holiday(LocalDate.of(2026, 8, 15), "Independence Day");
+        holiday(LocalDate.of(2026, 1, 26), "Republic Day");
+    }
+    private void type(String name, String code, boolean paid, boolean alloc, String color) {
+        TimeOffType t = new TimeOffType();
+        t.setName(name); t.setCode(code); t.setPaid(paid); t.setRequiresAllocation(alloc); t.setColor(color);
+        types.save(t);
+    }
+    private void holiday(LocalDate d, String name) {
+        PublicHoliday h = new PublicHoliday(); h.setDate(d); h.setName(name); holidays.save(h);
+    }
+
+    private Employee newEmployee(String name, Long deptId, Long scheduleId, String email) {
+        Employee e = new Employee();
+        e.setEmployeeNo("E-" + (1000 + employees.count() + 1));
+        e.setDisplayName(name);
+        e.setWorkEmail(email);
+        e.setJobTitle("Staff");
+        e.setHireDate(LocalDate.of(2025, 1, 1));
+        e.setDepartmentId(deptId);
+        e.setEmployeeType("FULL_TIME");
+        e.setWorkingScheduleId(scheduleId);
+        return employees.save(e);
+    }
+    private void runningContract(Employee e, SalaryStructure s, WorkingSchedule sch, BigDecimal wage, Long deptId) {
+        Contract c = new Contract();
+        c.setReference(String.format("C-%04d", contracts.count() + 1));
+        c.setEmployeeId(e.getId());
+        c.setWage(wage);
+        c.setWageType("MONTHLY");
+        c.setStartDate(LocalDate.of(2025, 1, 1));
+        c.setState("RUNNING");
+        c.setWorkingScheduleId(sch.getId());
+        c.setSalaryStructureId(s.getId());
+        c.setJobTitle("Staff");
+        c.setDepartmentId(deptId);
+        contracts.save(c);
+    }
+    private void bank(Employee e) {
+        EmployeeBankAccount b = new EmployeeBankAccount();
+        b.setEmployeeId(e.getId());
+        b.setBankName("Demo Bank");
+        b.setAccountNumber("00000000" + (1000 + e.getId()));
+        b.setAccountLast4(String.valueOf(1000 + e.getId()).substring(0, 4));
+        b.setIfsc("DEMO0001234");
+        banks.save(b);
+    }
+    private AppUser newUser(String email, String password, String roleCode, String name, Long employeeId, boolean breakGlass) {
+        Role role = roles.findByCode(roleCode).orElseThrow();
+        AppUser u = new AppUser();
+        u.setEmail(email);
+        u.setPasswordHash(encoder.encode(password));
+        u.setDisplayName(name);
+        u.setRole(role);
+        u.setEmployeeId(employeeId);
+        u.setActive(true);
+        u.setBreakGlass(breakGlass);
+        return users.save(u);
+    }
+    private void grantChat(Long userId, Long adminId) {
+        UserPermissionGrant g = new UserPermissionGrant();
+        g.setUserId(userId);
+        g.setPermissionCode("chat.access");
+        g.setEffect("ALLOW");
+        g.setReason("assistant pilot");
+        g.setGrantedBy(adminId);
+        g.setExpiresAt(OffsetDateTime.now().plusDays(30));
+        grants.save(g);
+    }
+
+    private void seedSamLeave(Long samId) {
+        if (samId == null) return;
+        Long annual = types.findByCode("ANNUAL").orElseThrow().getId();
+        Long unpaid = types.findByCode("UNPAID").orElseThrow().getId();
+
+        TimeOffAllocation alloc = new TimeOffAllocation();
+        alloc.setEmployeeId(samId);
+        alloc.setTypeId(annual);
+        alloc.setDays(new BigDecimal("10"));
+        alloc.setState("DRAFT");
+        alloc.setValidFrom(LocalDate.of(2026, 1, 1));
+        alloc.setValidTo(LocalDate.of(2026, 12, 31));
+        allocations.save(alloc);
+
+        TimeOffRequest annualReq = new TimeOffRequest();
+        annualReq.setEmployeeId(samId);
+        annualReq.setTypeId(annual);
+        annualReq.setStartDate(LocalDate.of(2026, 8, 25));
+        annualReq.setEndDate(LocalDate.of(2026, 8, 27));
+        annualReq.setDays(new BigDecimal("3"));
+        annualReq.setState("NEEDS_ATTENTION");
+        annualReq.setAnomaly("Requested 3 days, available 0");
+        requests.save(annualReq);
+
+        TimeOffRequest unpaidReq = new TimeOffRequest();
+        unpaidReq.setEmployeeId(samId);
+        unpaidReq.setTypeId(unpaid);
+        unpaidReq.setStartDate(LocalDate.of(2026, 8, 20));
+        unpaidReq.setEndDate(LocalDate.of(2026, 8, 21));
+        unpaidReq.setDays(new BigDecimal("2"));
+        unpaidReq.setState("PENDING");
+        requests.save(unpaidReq);
+    }
+
+    private void seedRecruitment(Department ops, SalaryStructure structure, WorkingSchedule schedule) {
+        JobOpening o = new JobOpening();
+        o.setTitle("Warehouse Supervisor");
+        o.setDepartmentId(ops.getId());
+        o.setSalaryStructureId(structure.getId());
+        o.setWorkingScheduleId(schedule.getId());
+        o.setBandMin(new BigDecimal("40000"));
+        o.setBandMax(new BigDecimal("55000"));
+        o.setTargetStartDate(LocalDate.of(2026, 9, 1));
+        o.setCriteria("[]");
+        o = openings.save(o);
+        String[][] profiles = {
+                {"C1", "40000", "{\"skills\":[{\"name\":\"Shift lead\",\"level\":4,\"isMustHave\":true}],\"yearsExperience\":4,\"certifications\":[\"Forklift\"],\"noticePeriodDays\":30}"},
+                {"C2", "45000", "{\"skills\":[{\"name\":\"Shift lead\",\"level\":5,\"isMustHave\":true}],\"yearsExperience\":6,\"certifications\":[\"Forklift\",\"Safety\"],\"noticePeriodDays\":15}"},
+                {"C3", "60000", "{\"skills\":[{\"name\":\"Shift lead\",\"level\":3,\"isMustHave\":true}],\"yearsExperience\":8,\"certifications\":[\"Safety\"],\"noticePeriodDays\":60}"}
+        };
+        int n = 0;
+        for (String[] p : profiles) {
+            n++;
+            Candidate c = new Candidate();
+            c.setOpeningId(o.getId());
+            c.setDisplayCode(p[0]);
+            c.setExpectedSalary(new BigDecimal(p[1]));
+            c.setAvailableFrom(LocalDate.of(2026, 9, 1));
+            c.setStage("OFFER");
+            c.setProfile(p[2]);
+            c = candidates.save(c);
+            CandidateIdentity id = new CandidateIdentity();
+            id.setCandidateId(c.getId());
+            id.setDisplayName("Candidate " + p[0] + " Placeholder");
+            id.setEmail(p[0].toLowerCase() + "@example.com");
+            id.setPhone("000-000-000" + n);
+            identities.save(id);
+        }
+    }
+}
