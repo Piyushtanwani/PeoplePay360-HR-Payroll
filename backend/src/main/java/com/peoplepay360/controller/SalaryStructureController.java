@@ -35,5 +35,5 @@ public class SalaryStructureController {
     public void deleteRule(@PathVariable Long id, @PathVariable Long ruleId) { service.deleteRule(id, ruleId); }
 
     @GetMapping("/formula-help")
-    public String formulaHelp() { return service.formulaHelp(); }
+    public FormulaHelp formulaHelp() { return service.formulaHelp(); }
 }

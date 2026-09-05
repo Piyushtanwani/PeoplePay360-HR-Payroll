@@ -29,7 +29,7 @@ export function ContractsPage() {
 
   const query = useQuery({
     queryKey: ['contracts', state, employeeId],
-    queryFn: () => api.get<Page<Contract>>('/api/contracts', { state, employeeId, size: 200 }),
+    queryFn: () => api.page<Contract>('/api/contracts', { state, employeeId, size: 200 }),
   })
 
   const invalidate = () => {

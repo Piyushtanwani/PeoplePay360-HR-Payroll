@@ -12,7 +12,14 @@ import com.peoplepay360.service.PayrunService;
 @RequestMapping("/api/payruns")
 public class PayrunController {
     private final PayrunService service;
-    public PayrunController(PayrunService service) { this.service = service; }
+    private final com.peoplepay360.service.PayslipService payslips;
+    public PayrunController(PayrunService service, com.peoplepay360.service.PayslipService payslips) {
+        this.service = service;
+        this.payslips = payslips;
+    }
+
+    @GetMapping("/{id}/delivery")
+    public DeliveryReport delivery(@PathVariable Long id) { return payslips.deliveryReport(id); }
 
     @GetMapping
     public List<PayrunDto> list(@RequestParam(required = false) String state,

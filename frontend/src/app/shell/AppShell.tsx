@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Banknote, Building2, CalendarClock, ClipboardList, Command, FileSpreadsheet, Gauge, LayoutGrid,
   LogOut, Moon, PanelLeftClose, PanelLeftOpen, Receipt, ScrollText, Settings, ShieldCheck, Sun,
-  Timer, Users, Wallet, Bell, HeartPulse, Cpu,
+  Timer, Users, Wallet, Bell, HeartPulse, Cpu, Menu, X, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/auth/AuthProvider'
@@ -41,6 +41,12 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'AI',
+    items: [
+      { to: '/assistant', label: 'Assistant', icon: <Sparkles className="h-4 w-4" />, permission: 'chat.access' },
+    ],
+  },
+  {
     label: 'Admin',
     items: [
       { to: '/admin/users', label: 'Users & Access', icon: <ShieldCheck className="h-4 w-4" />, permission: 'user.read' },
@@ -54,9 +60,13 @@ export const NAV_GROUPS: NavGroup[] = [
 const CRUMBS: Record<string, string> = {
   '/': 'Dashboard', '/employees': 'Employees', '/contracts': 'Contracts', '/schedules': 'Working Schedules',
   '/attendance': 'Attendance', '/timeoff': 'Time Off', '/payroll/payruns': 'Payruns', '/payroll/payslips': 'Payslips',
-  '/payroll/salary-structures': 'Salary Structures', '/admin/users': 'Users & Access', '/admin/ai': 'AI Settings',
+  '/payroll/salary-structures': 'Salary Structures', '/assistant': 'Assistant',
+  '/admin/users': 'Users & Access', '/admin/ai': 'AI Settings',
   '/admin/audit': 'Audit Log', '/admin/health': 'Health', '/settings': 'Settings',
 }
+
+/** Routes that fill the viewport themselves instead of sitting in the padded container. */
+const FULL_BLEED = new Set(['/assistant'])
 
 export function AppShell() {
   const { me, logout, canAny } = useAuth()
@@ -65,6 +75,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = React.useState(() => localStorage.getItem('pp360.sidebar') === 'rail')
   const [theme, setTheme] = React.useState<Theme>(readTheme)
   const [paletteOpen, setPaletteOpen] = React.useState(false)
+  const [mobileNav, setMobileNav] = React.useState(false)
 
   React.useEffect(() => {
     localStorage.setItem('pp360.sidebar', collapsed ? 'rail' : 'full')
@@ -148,6 +159,13 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="glass flex h-14 shrink-0 items-center justify-between gap-3 border-b border-separator px-4">
           <div className="flex min-w-0 items-center gap-2 text-sm2 text-label2">
+            <button
+              aria-label="Open navigation"
+              onClick={() => setMobileNav(true)}
+              className="-ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-control text-label hover:bg-surface2 md:hidden"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
             <span className="hidden sm:inline">PeoplePay360</span>
             <span className="hidden sm:inline">/</span>
             <span className="truncate font-medium text-label">{crumb}</span>
@@ -180,12 +198,72 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
-            <Outlet />
-          </div>
-        </main>
+        {/* Full-bleed routes manage their own scrolling and padding. */}
+        {FULL_BLEED.has(location.pathname) ? (
+          <main className="min-h-0 flex-1"><Outlet /></main>
+        ) : (
+          <main className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
+              <Outlet />
+            </div>
+          </main>
+        )}
       </div>
+
+      {/* Mobile navigation: the sidebar is desktop-only, so small screens get a drawer. */}
+      <div
+        onClick={() => setMobileNav(false)}
+        aria-hidden={!mobileNav}
+        className={cn(
+          'fixed inset-0 z-40 bg-black/30 transition-opacity duration-200 md:hidden',
+          mobileNav ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+      />
+      <aside
+        aria-label="Navigation"
+        aria-hidden={!mobileNav}
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-[17rem] flex-col border-r border-separator bg-surface',
+          'transition-transform duration-300 ease-[cubic-bezier(.32,.72,0,1)] md:hidden',
+          mobileNav ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
+        <div className="flex h-14 items-center justify-between px-4">
+          <span className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-[9px] bg-accent text-white">
+              <Building2 className="h-4 w-4" />
+            </span>
+            <span className="text-[15px] font-semibold">PeoplePay360</span>
+          </span>
+          <button aria-label="Close navigation" onClick={() => setMobileNav(false)} className="text-label2">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-2 pb-4">
+          {groups.map((group) => (
+            <div key={group.label} className="mb-4">
+              <p className="px-3 pb-1 text-xs2 font-semibold uppercase tracking-wide text-label2">{group.label}</p>
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  onClick={() => setMobileNav(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'mb-0.5 flex items-center gap-2.5 rounded-control px-3 py-2 text-sm2 font-medium transition-colors',
+                      isActive ? 'bg-accent/12 text-accent' : 'text-label2 hover:bg-surface2 hover:text-label',
+                    )
+                  }
+                >
+                  {item.icon}
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </nav>
+      </aside>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} groups={groups} onNavigate={(to) => navigate(to)} />
     </div>

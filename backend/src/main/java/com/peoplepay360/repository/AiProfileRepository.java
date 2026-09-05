@@ -6,4 +6,5 @@ import com.peoplepay360.model.AiProfile;
 
 public interface AiProfileRepository extends JpaRepository<AiProfile, Long> {
     Optional<AiProfile> findByIsDefaultTrue();
+    Optional<AiProfile> findByProviderIgnoreCase(String provider);
 }

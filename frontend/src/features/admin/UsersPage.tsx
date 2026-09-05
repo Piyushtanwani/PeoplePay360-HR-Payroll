@@ -31,7 +31,7 @@ function expiryToIso(value: string) {
 export function UsersPage() {
   const [q, setQ] = React.useState('')
   const [selected, setSelected] = React.useState<AdminUser | null>(null)
-  const query = useQuery({ queryKey: ['admin', 'users', q], queryFn: () => api.get<Page<AdminUser>>('/api/admin/users', { q, size: 100 }) })
+  const query = useQuery({ queryKey: ['admin', 'users', q], queryFn: () => api.page<AdminUser>('/api/admin/users', { q, size: 100 }) })
 
   return (
     <>
@@ -79,7 +79,7 @@ function UserSheet({ user, onClose }: { user: AdminUser; onClose: () => void }) 
   const catalogue = useQuery({ queryKey: ['admin', 'permissions'], queryFn: () => api.get<PermissionCatalogItem[]>('/api/admin/permissions') })
   const audit = useQuery({
     queryKey: ['admin', 'audit', user.id],
-    queryFn: () => api.get<Page<AuditEvent>>('/api/admin/audit', { actorUserId: user.id, size: 20 }),
+    queryFn: () => api.page<AuditEvent>('/api/admin/audit', { actorUserId: user.id, size: 20 }),
   })
 
   const invalidate = () => {

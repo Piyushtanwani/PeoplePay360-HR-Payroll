@@ -9,7 +9,8 @@ public class EmployeeDtos {
 
     public record EmployeeSummary(Long id, String employeeNo, String displayName, String jobTitle,
                                   Long departmentId, String departmentName, String employeeType,
-                                  Long managerId, String managerName, boolean active, String avatarColor) {}
+                                  Long managerId, String managerName, boolean active, String avatarColor,
+                                  Counts counts) {}
 
     public record BankView(String bankName, String accountLast4, boolean hasAccount) {}
 

@@ -1,184 +1,252 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Star, Zap } from 'lucide-react'
+import { Check, Cpu, ExternalLink, Hammer, Loader2, Server, Sparkles, Zap } from 'lucide-react'
 import { api, ApiError } from '@/api/client'
-import {
-  Button, Callout, Card, CardHeader, Chip, Field, PageHeader, SegmentedControl, Select, Sheet,
-  TextInput, Toggle, useToast,
-} from '@/components/ui'
+import { Button, Callout, Card, Chip, PageHeader, Select, TextInput, useToast } from '@/components/ui'
 import { fmtDateTime } from '@/lib/format'
-import type { AiModel, AiProfile, AiProviderPreset } from '@/api/types'
+import { cn } from '@/lib/cn'
+import type { AiProfile, AiProviderPreset, QuickSetupResult } from '@/api/types'
+
+const BLURB: Record<string, string> = {
+  OPENROUTER: 'One key, many hosted models from a single account.',
+  NVIDIA: 'NVIDIA-hosted models. Paste a build.nvidia.com key to begin.',
+  OLLAMA: 'Runs on this machine. No key needed — just make sure Ollama is running.',
+}
+
+const ICON: Record<string, React.ReactNode> = {
+  OPENROUTER: <Sparkles className="h-4 w-4" />,
+  NVIDIA: <Cpu className="h-4 w-4" />,
+  OLLAMA: <Server className="h-4 w-4" />,
+}
 
 export function AiSettingsPage() {
-  const [editing, setEditing] = React.useState<AiProfile | 'new' | null>(null)
   const queryClient = useQueryClient()
   const toast = useToast()
+  const [provider, setProvider] = React.useState<string>('OLLAMA')
+  const [apiKey, setApiKey] = React.useState('')
+  const [models, setModels] = React.useState<string[]>([])
+  const [model, setModel] = React.useState<string | null>(null)
 
-  const profiles = useQuery({ queryKey: ['admin', 'ai', 'profiles'], queryFn: () => api.get<AiProfile[]>('/api/admin/ai/profiles') })
+  /** Switching provider invalidates any list already fetched. */
+  const pickProvider = (next: string) => {
+    setProvider(next)
+    setApiKey('')
+    setModels([])
+    setModel(null)
+  }
 
-  const setDefault = useMutation({
-    mutationFn: (id: number) => api.post(`/api/admin/ai/profiles/${id}/default`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'ai'] }); toast.push({ tone: 'success', title: 'Default profile updated' }) },
+  const providers = useQuery({
+    queryKey: ['admin', 'ai', 'providers'],
+    queryFn: () => api.get<AiProviderPreset[]>('/api/admin/ai/providers'),
+  })
+  const profiles = useQuery({
+    queryKey: ['admin', 'ai', 'profiles'],
+    queryFn: () => api.get<AiProfile[]>('/api/admin/ai/profiles'),
+  })
+
+  const preset = (providers.data ?? []).find((p) => p.provider === provider)
+  const active = (profiles.data ?? []).find((p) => p.isDefault) ?? null
+
+  const loadModels = useMutation({
+    mutationFn: () => api.post<{ models: string[]; defaultModel: string | null }>('/api/admin/ai/models', { provider, apiKey }),
+    onSuccess: (result) => {
+      setModels(result.models)
+      setModel(result.defaultModel)
+      if (result.models.length === 0) {
+        toast.push({ tone: 'error', title: 'No models available', detail: 'For Ollama, pull a model first.' })
+      }
+    },
+    onError: (e) => toast.push({
+      tone: 'error',
+      title: 'Could not fetch models',
+      detail: e instanceof ApiError ? e.detail : 'Unexpected error.',
+    }),
+  })
+
+  const connect = useMutation({
+    mutationFn: () => api.post<QuickSetupResult>('/api/admin/ai/quick-setup', { provider, apiKey, model }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'ai'] })
+      queryClient.invalidateQueries({ queryKey: ['chat'] })
+      setApiKey('')
+      toast.push({
+        tone: result.ok ? 'success' : 'error',
+        title: result.ok ? `Connected to ${result.profile.model}` : 'Saved, but the test failed',
+        detail: result.ok ? 'This provider is now active for everyone.' : result.message,
+      })
+    },
+    onError: (e) => toast.push({
+      tone: 'error',
+      title: 'Could not connect',
+      detail: e instanceof ApiError ? e.detail : 'Unexpected error.',
+    }),
   })
 
   const test = useMutation({
-    mutationFn: (id: number) => api.post<AiProfile>(`/api/admin/ai/profiles/${id}/test`),
-    onSuccess: (profile) => {
+    mutationFn: (p: AiProfile) => api.post<{ ok: boolean; message: string }>('/api/admin/ai/test', { provider: p.provider, profileId: p.id }),
+    onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'ai'] })
-      toast.push({ tone: profile.lastTestOk ? 'success' : 'error', title: profile.lastTestOk ? 'Connection succeeded' : 'Connection failed', detail: profile.lastTestMessage ?? '' })
+      toast.push({ tone: r.ok ? 'success' : 'error', title: r.ok ? 'Connection healthy' : 'Connection failed', detail: r.message })
     },
   })
+
+  const needsKey = preset?.requiresApiKey ?? false
+  const canFetch = !needsKey || apiKey.trim().length > 0
 
   return (
     <>
       <PageHeader
         title="AI settings"
-        description="Provider profiles used by the assistant. The MCP service is not reachable while the backend is disconnected."
-        actions={<Button variant="primary" onClick={() => setEditing('new')}>New profile</Button>}
+        description="Pick a provider, fetch its models and choose one. The assistant then becomes available to everyone."
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {(profiles.data ?? []).map((profile) => (
-          <Card key={profile.id}>
-            <CardHeader
-              title={
-                <span className="flex items-center gap-2">
-                  {profile.name}
-                  {profile.isDefault ? <Chip tone="accent"><Star className="h-3 w-3" /> default</Chip> : null}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <Card className="p-5">
+          <p className="text-sm2 font-semibold">Connect a provider</p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {(providers.data ?? []).map((p) => (
+              <button
+                key={p.provider}
+                onClick={() => pickProvider(p.provider)}
+                className={cn(
+                  'rounded-card border p-3 text-left transition-colors',
+                  provider === p.provider ? 'border-accent bg-accent/8' : 'border-separator bg-surface2/40 hover:bg-surface2',
+                )}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <span className={cn(provider === p.provider ? 'text-accent' : 'text-label2')}>{ICON[p.provider]}</span>
+                  {p.label}
                 </span>
-              }
-              subtitle={`${profile.provider.toLowerCase()} · ${profile.model}`}
-              action={<Button size="sm" onClick={() => setEditing(profile)}>Edit</Button>}
-            />
-            <dl className="divide-y divide-separator">
-              {[
-                ['Base URL', profile.baseUrl],
-                ['Tool mode', profile.toolMode.toLowerCase()],
-                ['Temperature', String(profile.temperature)],
-                ['Max tokens', String(profile.maxTokens)],
-                ['API key', profile.apiKeySet ? `stored ····${profile.apiKeyLast4}` : 'not required'],
-                ['Last test', profile.lastTestAt ? `${profile.lastTestMessage} · ${fmtDateTime(profile.lastTestAt)}` : 'never tested'],
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 px-5 py-2 text-sm2">
-                  <dt className="text-label2">{label}</dt><dd className="truncate text-right font-medium">{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="flex gap-2 border-t border-separator px-5 py-3">
-              <Button size="sm" icon={<Zap className="h-3.5 w-3.5" />} loading={test.isPending} onClick={() => test.mutate(profile.id)}>Test connection</Button>
-              {!profile.isDefault ? <Button size="sm" onClick={() => setDefault.mutate(profile.id)}>Set as default</Button> : null}
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {editing ? <ProfileSheet profile={editing === 'new' ? null : editing} onClose={() => setEditing(null)} /> : null}
-    </>
-  )
-}
-
-function ProfileSheet({ profile, onClose }: { profile: AiProfile | null; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const toast = useToast()
-  const providers = useQuery({ queryKey: ['admin', 'ai', 'providers'], queryFn: () => api.get<AiProviderPreset[]>('/api/admin/ai/providers') })
-
-  const [form, setForm] = React.useState({
-    name: profile?.name ?? '', provider: profile?.provider ?? 'OLLAMA', baseUrl: profile?.baseUrl ?? '',
-    model: profile?.model ?? '', apiKey: '', toolMode: profile?.toolMode ?? 'AUTO',
-    temperature: profile?.temperature ?? 0.2, maxTokens: profile?.maxTokens ?? 2048, manualModel: false,
-  })
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
-  const preset = providers.data?.find((p) => p.provider === form.provider)
-
-  const models = useQuery({
-    queryKey: ['admin', 'ai', 'models', form.provider, form.baseUrl],
-    enabled: Boolean(form.baseUrl),
-    queryFn: () => api.post<AiModel[]>('/api/admin/ai/models', { provider: form.provider, baseUrl: form.baseUrl, profileId: profile?.id }),
-  })
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body = { ...form, apiKey: form.apiKey || undefined }
-      return profile ? api.put<AiProfile>(`/api/admin/ai/profiles/${profile.id}`, body) : api.post<AiProfile>('/api/admin/ai/profiles', body)
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'ai'] }); onClose(); toast.push({ tone: 'success', title: 'AI profile saved' }) },
-    onError: (error) => toast.push({ tone: 'error', title: 'Could not save profile', detail: error instanceof ApiError ? error.detail : '' }),
-  })
-
-  return (
-    <Sheet
-      open
-      onOpenChange={(next) => !next && onClose()}
-      width="lg"
-      title={profile ? `Edit ${profile.name}` : 'New AI profile'}
-      description="These settings are used by the assistant when the MCP service is connected."
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} disabled={!form.name || !form.model} onClick={() => save.mutate()}>Save profile</Button></>}
-    >
-      <div className="space-y-4">
-        <Field label="Profile name" required><TextInput value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Local Ollama" /></Field>
-
-        <Field label="Provider" required>
-          <Select
-            value={form.provider}
-            onChange={(value) => {
-              const next = providers.data?.find((p) => p.provider === value)
-              setForm((f) => ({ ...f, provider: value, baseUrl: next?.defaultBaseUrl ?? f.baseUrl, model: '' }))
-            }}
-            options={(providers.data ?? []).map((p) => ({ value: p.provider, label: p.label, description: p.defaultBaseUrl }))}
-          />
-        </Field>
-
-        <Field label="Base URL" required hint={preset ? `Default: ${preset.defaultBaseUrl}` : undefined}>
-          <div className="flex gap-2">
-            <TextInput value={form.baseUrl} onChange={(e) => set('baseUrl', e.target.value)} />
-            {preset ? <Button onClick={() => set('baseUrl', preset.defaultBaseUrl)}>Reset</Button> : null}
+                <span className="mt-1 block text-xs2 text-label2">{BLURB[p.provider] ?? ''}</span>
+              </button>
+            ))}
           </div>
-        </Field>
 
-        {preset?.requiresApiKey ? (
-          <Field label="API key" hint={profile?.apiKeySet ? 'Leave blank to keep the stored key.' : undefined}>
-            <TextInput type="password" value={form.apiKey} onChange={(e) => set('apiKey', e.target.value)} placeholder="sk-…" />
-          </Field>
-        ) : null}
+          <div className="mt-4 space-y-4">
+            {needsKey ? (
+              <div>
+                <label htmlFor="aikey" className="text-sm2 font-medium">API key</label>
+                <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                  <TextInput
+                    id="aikey"
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => { setApiKey(e.target.value); setModels([]); setModel(null) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && canFetch) loadModels.mutate() }}
+                    placeholder={provider === 'OPENROUTER' ? 'sk-or-v1-…' : 'nvapi-…'}
+                    className="flex-1 font-mono"
+                  />
+                  <Button loading={loadModels.isPending} disabled={!canFetch} onClick={() => loadModels.mutate()}>
+                    Fetch models
+                  </Button>
+                </div>
+                {preset?.docsUrl ? (
+                  <a href={preset.docsUrl} target="_blank" rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-xs2 text-accent hover:underline">
+                    Get a key <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <p className="flex-1 text-sm2 text-label2">
+                  No key required. Ollama must be running at <span className="font-mono">{preset?.defaultBaseUrl}</span>.
+                </p>
+                <Button loading={loadModels.isPending} onClick={() => loadModels.mutate()}>Fetch models</Button>
+              </div>
+            )}
 
-        <Field label="Model" required hint={models.isError ? 'Model listing failed — enter the model name manually.' : undefined}>
-          {form.manualModel || models.isError ? (
-            <TextInput value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="llama3.1:8b" />
-          ) : (
-            <Select
-              value={form.model || null}
-              onChange={(value) => set('model', String(value))}
-              loading={models.isLoading}
-              placeholder="Select a model"
-              options={(models.data ?? []).map((m) => ({
-                value: m.id, label: m.name,
-                description: `${m.supportsTools === null ? 'Tool support unknown' : m.supportsTools ? 'Tools supported' : 'No tool support'}${m.contextLength ? ` · ${(m.contextLength / 1000).toFixed(0)}k context` : ''}`,
-              }))}
-              createLabel="Enter model name manually"
-              onCreate={() => set('manualModel', true)}
-            />
-          )}
-        </Field>
+            {loadModels.isPending ? (
+              <p className="flex items-center gap-2 text-sm2 text-label2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Asking the provider which models it offers…
+              </p>
+            ) : null}
 
-        <Field label="Tool mode" hint="Auto lets the provider decide how tools are invoked.">
-          <SegmentedControl value={form.toolMode} onChange={(v) => set('toolMode', v)} options={[{ value: 'AUTO', label: 'Auto' }, { value: 'NATIVE', label: 'Native' }, { value: 'PROMPTED', label: 'Prompted' }]} />
-        </Field>
+            {models.length > 0 ? (
+              <div className="rounded-card border border-separator bg-surface2/40 p-3.5">
+                <label htmlFor="aimodel" className="text-sm2 font-medium">Model</label>
+                <p className="mt-0.5 text-xs2 text-label2">
+                  {models.length} available. The best match for chat is preselected.
+                </p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <div className="flex-1">
+                    <Select
+                      id="aimodel"
+                      value={model}
+                      onChange={setModel}
+                      options={models.map((m) => ({ value: m, label: m }))}
+                      placeholder="Select a model"
+                    />
+                  </div>
+                  <Button variant="primary" loading={connect.isPending} disabled={!model} onClick={() => connect.mutate()}>
+                    Connect
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Card>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={`Temperature — ${form.temperature.toFixed(1)}`}>
-            <input type="range" min={0} max={1} step={0.1} value={form.temperature} onChange={(e) => set('temperature', Number(e.target.value))} className="w-full accent-[var(--accent)]" />
-          </Field>
-          <Field label="Max tokens">
-            <Select value={form.maxTokens} onChange={(v) => set('maxTokens', v)} options={[512, 1024, 2048, 4096].map((n) => ({ value: n, label: String(n) }))} />
-          </Field>
-        </div>
+        <div className="space-y-4">
+          <Card className="p-5">
+            <p className="text-sm2 font-semibold">Active assistant</p>
+            {active ? (
+              <>
+                <p className="mt-2 flex items-center gap-2 text-body font-medium">
+                  <Check className="h-4 w-4 text-ok" /> {active.name}
+                </p>
+                <dl className="mt-3 space-y-1.5 text-sm2">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-label2">Model</dt>
+                    <dd className="truncate font-mono text-xs2">{active.model}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-label2">API key</dt>
+                    <dd>{active.apiKeySet ? `····${active.apiKeyLast4}` : 'not required'}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-label2">Last check</dt>
+                    <dd>{active.lastTestAt ? fmtDateTime(active.lastTestAt) : 'never'}</dd>
+                  </div>
+                </dl>
+                <Button size="sm" className="mt-3 w-full" icon={<Zap className="h-3.5 w-3.5" />}
+                  loading={test.isPending} onClick={() => test.mutate(active)}>
+                  Test connection
+                </Button>
+              </>
+            ) : (
+              <p className="mt-2 text-sm2 text-label2">Nothing connected yet. Pick a provider to enable the assistant.</p>
+            )}
+          </Card>
 
-        {form.provider === 'OLLAMA' ? (
-          <Callout tone="neutral" title="Ollama runs on your machine">
-            Start it locally and pull a model first: <span className="font-mono">ollama pull llama3.1:8b</span>
+          <Callout tone="neutral" title="Record lookups">
+            <p className="mt-1 flex items-center gap-2 text-sm2 text-label2">
+              <Hammer className="h-3.5 w-3.5 shrink-0" />
+              The assistant answers from the model today. Letting it read live payroll and HR records arrives with the
+              MCP tool service.
+            </p>
+            <Chip className="mt-2">Coming soon</Chip>
           </Callout>
-        ) : null}
+        </div>
       </div>
-    </Sheet>
+
+      {(profiles.data ?? []).length > 1 ? (
+        <Card className="mt-4 p-5">
+          <p className="text-sm2 font-semibold">Other saved providers</p>
+          <div className="mt-2 divide-y divide-separator">
+            {(profiles.data ?? []).filter((p) => !p.isDefault).map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-3 py-2 text-sm2">
+                <span className="min-w-0">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="ml-2 truncate font-mono text-xs2 text-label2">{p.model}</span>
+                </span>
+                <Button size="sm" onClick={() => pickProvider(p.provider)}>Reconnect</Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+    </>
   )
 }

@@ -18,10 +18,10 @@ export function AuditPage() {
   const [q, setQ] = React.useState('')
   const [open, setOpen] = React.useState<AuditEvent | null>(null)
 
-  const users = useQuery({ queryKey: ['admin', 'users', 'all'], queryFn: () => api.get<Page<AdminUser>>('/api/admin/users', { size: 100 }) })
+  const users = useQuery({ queryKey: ['admin', 'users', 'all'], queryFn: () => api.page<AdminUser>('/api/admin/users', { size: 100 }) })
   const query = useQuery({
     queryKey: ['admin', 'audit', channel, outcome, resourceType, actorUserId, q],
-    queryFn: () => api.get<Page<AuditEvent>>('/api/admin/audit', { channel, outcome, resourceType, actorUserId, q, size: 200 }),
+    queryFn: () => api.page<AuditEvent>('/api/admin/audit', { channel, outcome, resourceType, actorUserId, q, size: 200 }),
   })
 
   const exportCsv = async () => {

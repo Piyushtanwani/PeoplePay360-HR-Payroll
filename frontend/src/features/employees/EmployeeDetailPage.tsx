@@ -26,9 +26,9 @@ export function EmployeeDetailPage() {
   const [revealed, setRevealed] = React.useState<{ bankName: string; accountNumber: string; ifsc: string } | null>(null)
 
   const employee = useQuery({ queryKey: ['employee', employeeId], queryFn: () => api.get<Employee>(`/api/employees/${employeeId}`) })
-  const contracts = useQuery({ queryKey: ['contracts', employeeId], queryFn: () => api.get<Page<Contract>>('/api/contracts', { employeeId, size: 50 }) })
-  const attendance = useQuery({ queryKey: ['attendance', employeeId], queryFn: () => api.get<Page<Attendance>>('/api/attendance', { employeeId, size: 30 }) })
-  const requests = useQuery({ queryKey: ['timeoff', 'requests', employeeId], queryFn: () => api.get<Page<TimeOffRequest>>('/api/timeoff/requests', { employeeId, size: 50 }) })
+  const contracts = useQuery({ queryKey: ['contracts', employeeId], queryFn: () => api.page<Contract>('/api/contracts', { employeeId, size: 50 }) })
+  const attendance = useQuery({ queryKey: ['attendance', employeeId], queryFn: () => api.page<Attendance>('/api/attendance', { employeeId, size: 30 }) })
+  const requests = useQuery({ queryKey: ['timeoff', 'requests', employeeId], queryFn: () => api.page<TimeOffRequest>('/api/timeoff/requests', { employeeId, size: 50 }) })
   const balances = useQuery({ queryKey: ['timeoff', 'balances', employeeId], queryFn: () => api.get<LeaveBalance[]>('/api/timeoff/balances', { employeeId }) })
 
   const reveal = useMutation({

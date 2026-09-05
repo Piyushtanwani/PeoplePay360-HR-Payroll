@@ -37,7 +37,7 @@ export function EmployeesPage() {
 
   const query = useQuery({
     queryKey: ['employees', q, departmentId, employeeType],
-    queryFn: () => api.get<Page<Employee>>('/api/employees', { q, departmentId, employeeType, size: 200 }),
+    queryFn: () => api.page<Employee>('/api/employees', { q, departmentId, employeeType, size: 200 }),
   })
 
   const rows = query.data?.content ?? []
@@ -140,8 +140,8 @@ export function EmployeesPage() {
                     </div>
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                       <Chip tone="accent">{person.employeeType.replace('_', ' ').toLowerCase()}</Chip>
-                      <Chip>{person.counts.contracts} contract{person.counts.contracts === 1 ? '' : 's'}</Chip>
-                      <Chip>{person.counts.timeOffRequests} time off</Chip>
+                      <Chip>{person.counts?.contracts ?? 0} contract{(person.counts?.contracts ?? 0) === 1 ? '' : 's'}</Chip>
+                      <Chip>{person.counts?.timeOffRequests ?? 0} time off</Chip>
                     </div>
                   </button>
                 ))}

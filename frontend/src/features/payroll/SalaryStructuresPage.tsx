@@ -19,7 +19,7 @@ export function SalaryStructuresPage() {
   const { can } = useAuth()
   const [selectedId, setSelectedId] = React.useState<number | null>(null)
 
-  const structures = useQuery({ queryKey: ['structures'], queryFn: () => api.get<Page<SalaryStructure>>('/api/salary-structures', { size: 50 }) })
+  const structures = useQuery({ queryKey: ['structures'], queryFn: () => api.page<SalaryStructure>('/api/salary-structures', { size: 50 }) })
   const detail = useQuery({
     queryKey: ['structure', selectedId],
     enabled: Boolean(selectedId),
@@ -183,7 +183,7 @@ function DryRunPanel({ structureId }: { structureId: number }) {
   const [period, setPeriod] = React.useState('2026-09')
   const [result, setResult] = React.useState<{ employeeId: number; employeeName: string; currentNet: number; newNet: number; delta: number }[] | null>(null)
 
-  const employees = useQuery({ queryKey: ['employees', 'options'], queryFn: () => api.get<Page<{ id: number; displayName: string; employeeNo: string }>>('/api/employees', { size: 20 }) })
+  const employees = useQuery({ queryKey: ['employees', 'options'], queryFn: () => api.page<{ id: number; displayName: string; employeeNo: string }>('/api/employees', { size: 20 }) })
 
   const run = useMutation({
     mutationFn: (employeeIds: number[]) => api.post<{ results: typeof result }>(`/api/salary-structures/${structureId}/dry-run`, { employeeIds, period }),
