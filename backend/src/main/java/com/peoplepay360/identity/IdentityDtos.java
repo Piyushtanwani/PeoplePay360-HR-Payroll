@@ -1,0 +1,32 @@
+package com.peoplepay360.identity;
+
+import com.peoplepay360.employee.EmployeeDtos.EmployeeSummary;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import java.time.OffsetDateTime;
+import java.util.List;
+
+public class IdentityDtos {
+    public record LoginRequest(@Email @NotBlank String email, @NotBlank String password) {}
+    public record UserSummary(Long id, String email, String displayName, String roleCode, Long employeeId, boolean active) {}
+    public record LoginResponse(String accessToken, long expiresIn, String tokenType, UserSummary user) {}
+    public record Settings(String currency, String timezone, String appName, String profile) {}
+    public record Features(boolean chat, boolean recruitment) {}
+    public record MeResponse(UserSummary user, List<String> permissions, EmployeeSummary employee,
+                             Settings settings, Features features) {}
+
+    public record CreateUser(@Email @NotBlank String email, @NotBlank String displayName, String password,
+                             @NotBlank String roleCode, Long employeeId, Boolean active) {}
+    public record UpdateUser(String displayName, String password, Long employeeId, Boolean active) {}
+    public record RoleAssign(@NotBlank String roleCode) {}
+    public record UserDetail(Long id, String email, String displayName, String roleCode, Long employeeId,
+                             boolean active, int grantCount) {}
+    public record PermissionCatalogueEntry(String code, String resource, String action, String scope,
+                                           String tier, String description, boolean grantableByMe) {}
+    public record GrantDto(Long id, Long userId, String permissionCode, String effect, String reason,
+                           Long grantedBy, String grantedByName, OffsetDateTime grantedAt,
+                           OffsetDateTime expiresAt, OffsetDateTime revokedAt, boolean active) {}
+    public record CreateGrant(@NotBlank String permissionCode, String effect, @NotBlank String reason,
+                              OffsetDateTime expiresAt) {}
+    public record UserPermissions(List<String> effective, List<String> fromRole, List<GrantDto> grants) {}
+}

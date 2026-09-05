@@ -172,23 +172,21 @@ public class DemoSeeder implements ApplicationRunner {
         s.setName("Standard Monthly");
         s.setCode("STD_MONTHLY");
         s.setActive(true);
-        s = structures.save(s);
-        addRule(s.getId(), "Basic", "BASIC", "BASIC", 10, "FORMULA", null, null, null, "WAGE");
-        addRule(s.getId(), "House Rent Allowance", "HRA", "ALLOWANCE", 20, "PERCENTAGE", null, new BigDecimal("20"), "BASIC", null);
-        addRule(s.getId(), "Transport", "TRANSPORT", "ALLOWANCE", 30, "FIXED", new BigDecimal("1000"), null, null, null);
-        addRule(s.getId(), "Overtime", "OVERTIME", "ALLOWANCE", 40, "FORMULA", null, null, null, "HOURLY_RATE * 1.5 * OVERTIME_HOURS");
-        addRule(s.getId(), "Gross", "GROSS", "GROSS", 50, "FORMULA", null, null, null, "C_BASIC + C_ALLOWANCE");
-        addRule(s.getId(), "Unpaid Deduction", "UNPAID_DED", "DEDUCTION", 60, "FORMULA", null, null, null, "WAGE / SCHEDULED_DAYS * UNPAID_DAYS");
-        addRule(s.getId(), "Provident Fund", "PF", "DEDUCTION", 70, "PERCENTAGE", null, new BigDecimal("12"), "BASIC", null);
-        addRule(s.getId(), "Tax", "TAX", "DEDUCTION", 80, "FORMULA", null, null, null, "max(0, (R_GROSS - 25000) * 0.10)");
-        addRule(s.getId(), "Net", "NET", "NET", 90, "FORMULA", null, null, null, "C_GROSS - C_DEDUCTION");
-        return structures.findById(s.getId()).orElseThrow();
+        addRule(s, "Basic", "BASIC", "BASIC", 10, "FORMULA", null, null, null, "WAGE");
+        addRule(s, "House Rent Allowance", "HRA", "ALLOWANCE", 20, "PERCENTAGE", null, new BigDecimal("20"), "BASIC", null);
+        addRule(s, "Transport", "TRANSPORT", "ALLOWANCE", 30, "FIXED", new BigDecimal("1000"), null, null, null);
+        addRule(s, "Overtime", "OVERTIME", "ALLOWANCE", 40, "FORMULA", null, null, null, "HOURLY_RATE * 1.5 * OVERTIME_HOURS");
+        addRule(s, "Gross", "GROSS", "GROSS", 50, "FORMULA", null, null, null, "C_BASIC + C_ALLOWANCE");
+        addRule(s, "Unpaid Deduction", "UNPAID_DED", "DEDUCTION", 60, "FORMULA", null, null, null, "WAGE / SCHEDULED_DAYS * UNPAID_DAYS");
+        addRule(s, "Provident Fund", "PF", "DEDUCTION", 70, "PERCENTAGE", null, new BigDecimal("12"), "BASIC", null);
+        addRule(s, "Tax", "TAX", "DEDUCTION", 80, "FORMULA", null, null, null, "max(0, (R_GROSS - 25000) * 0.10)");
+        addRule(s, "Net", "NET", "NET", 90, "FORMULA", null, null, null, "C_GROSS - C_DEDUCTION");
+        return structures.save(s);
     }
 
-    private void addRule(Long structureId, String name, String code, String category, int seq, String type,
+    private void addRule(SalaryStructure s, String name, String code, String category, int seq, String type,
                          BigDecimal fixed, BigDecimal pct, String base, String formula) {
         SalaryRule r = new SalaryRule();
-        r.setStructureId(structureId);
         r.setName(name);
         r.setCode(code);
         r.setCategory(category);
@@ -199,7 +197,7 @@ public class DemoSeeder implements ApplicationRunner {
         r.setBaseRuleCode(base);
         r.setFormula(formula);
         r.setActive(true);
-        rules.save(r);
+        s.getRules().add(r);
     }
 
     private Map<String, Department> seedDepartments() {
