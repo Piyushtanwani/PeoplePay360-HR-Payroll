@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ArrowDown, ArrowUp, Calculator, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calculator, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   useDeleteRule, useDeleteStructure, useReorderRules, useSaveStructure, useSetRuleActive, useStructure,
   useStructures,
@@ -11,25 +11,38 @@ import {
   IconButton, PageHeader, Sheet, TextInput, Toggle, Tooltip, type Column,
 } from '@/components/ui'
 import { moneyExact, num } from '@/lib/format'
-import { useNumberParamState } from '@/lib/hooks/useSearchParamState'
 import { useTableState } from '@/lib/hooks/useTableState'
+import { cn } from '@/lib/cn'
 import { DryRunPanel } from './DryRunPanel'
 import { RuleSheet } from './RuleSheet'
 import type { SalaryRule, SalaryStructure } from '@/api/types'
 
 export function SalaryStructuresPage() {
   const { can } = useAuth()
-  const [structureId, setStructureId] = useNumberParamState('structureId')
-  const [ruleId, setRuleId] = useNumberParamState('ruleId')
+  const [structureId, setStructureId] = React.useState<number | null>(null)
+  const [ruleId, setRuleId] = React.useState<number | null>(null)
+
+  // Ensure stale ?structureId= in the address bar does not auto-open the detail table on page load
+  React.useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      if (url.searchParams.has('structureId')) {
+        url.searchParams.delete('structureId')
+        window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''))
+      }
+    } catch {}
+  }, [])
 
   const table = useTableState({ prefix: 's.', defaultSort: 'name', defaultDir: 'asc', size: 20 })
   const list = useStructures(table.params)
   const detail = useStructure(structureId)
+  const detailRef = React.useRef<HTMLDivElement>(null)
 
-  // Select the first structure automatically, so the page is never a blank right-hand pane.
   React.useEffect(() => {
-    if (structureId === null && list.data?.content.length) setStructureId(list.data.content[0].id)
-  }, [structureId, list.data, setStructureId])
+    if (structureId !== null && detail.data) {
+      detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [structureId, detail.data])
 
   const [editingStructure, setEditingStructure] = React.useState<SalaryStructure | null | 'new'>(null)
   const [deletingStructure, setDeletingStructure] = React.useState<SalaryStructure | null>(null)
@@ -47,22 +60,48 @@ export function SalaryStructuresPage() {
       key: 'name',
       header: 'Structure',
       sortable: true,
+      width: '40%',
       render: (r) => (
-        <div className="min-w-0">
-          <p className="truncate font-medium">{r.name}</p>
-          <p className="tnum truncate text-xs2 text-label2">{r.code}</p>
+        <div className="flex items-center gap-2.5 min-w-0">
+          {r.id === structureId ? (
+            <span className="h-2 w-2 shrink-0 rounded-full bg-accent ring-4 ring-accent/20" />
+          ) : null}
+          <div className="min-w-0">
+            <p className={cn('truncate font-medium', r.id === structureId && 'text-accent font-semibold')}>
+              {r.name}
+            </p>
+            <p className="tnum truncate text-xs2 text-label2">{r.code}</p>
+          </div>
         </div>
       ),
     },
-    { key: 'ruleCount', header: 'Rules', align: 'right', render: (r) => num(r.ruleCount) },
+    {
+      key: 'ruleCount',
+      header: 'Rules',
+      align: 'right',
+      width: '20%',
+      render: (r) => <span className="whitespace-nowrap">{num(r.ruleCount)}</span>,
+    },
     {
       key: 'employeeCount',
       header: 'People',
       align: 'right',
+      width: '20%',
       tooltip: 'Employees with a running contract on this structure.',
-      render: (r) => num(r.employeeCount),
+      render: (r) => <span className="whitespace-nowrap">{num(r.employeeCount)}</span>,
     },
-    { key: 'active', header: 'Status', sortable: true, render: (r) => <ActiveBadge active={r.active} /> },
+    {
+      key: 'active',
+      header: 'Status',
+      sortable: true,
+      align: 'right',
+      width: '20%',
+      render: (r) => (
+        <div className="flex justify-end whitespace-nowrap">
+          <ActiveBadge active={r.active} />
+        </div>
+      ),
+    },
   ]
 
   return (
@@ -92,8 +131,8 @@ export function SalaryStructuresPage() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
-        <Card className="h-fit">
+      <div className="space-y-6">
+        <Card className="w-full">
           <DataTable
             rows={list.data?.content ?? []}
             columns={columns}
@@ -103,7 +142,10 @@ export function SalaryStructuresPage() {
             fetching={list.isFetching}
             error={list.error}
             onRetry={() => list.refetch()}
-            onRowClick={(r) => { setStructureId(r.id); setRuleId(null) }}
+            onRowClick={(r) => {
+              setStructureId(structureId === r.id ? null : r.id)
+              setRuleId(null)
+            }}
             toolbar={{ search: 'Search name or code' }}
             empty={{
               icon: <Calculator className="h-6 w-6" />,
@@ -116,19 +158,18 @@ export function SalaryStructuresPage() {
           />
         </Card>
 
-        {detail.data ? (
-          <StructureDetail
-            structure={detail.data}
-            openRuleId={ruleId}
-            onRuleOpened={() => setRuleId(null)}
-            onEdit={() => setEditingStructure(detail.data!)}
-            onDelete={() => setDeletingStructure(detail.data!)}
-          />
-        ) : (
-          <Card className="flex items-center justify-center p-10 text-center text-sm2 text-label2">
-            Select a structure to see its rules.
-          </Card>
-        )}
+        {structureId !== null && detail.data ? (
+          <div ref={detailRef} className="animate-in fade-in duration-200">
+            <StructureDetail
+              structure={detail.data}
+              openRuleId={ruleId}
+              onRuleOpened={() => setRuleId(null)}
+              onEdit={() => setEditingStructure(detail.data!)}
+              onDelete={() => setDeletingStructure(detail.data!)}
+              onClose={() => setStructureId(null)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <StructureSheet
@@ -156,12 +197,13 @@ export function SalaryStructuresPage() {
   )
 }
 
-function StructureDetail({ structure, openRuleId, onRuleOpened, onEdit, onDelete }: {
+function StructureDetail({ structure, openRuleId, onRuleOpened, onEdit, onDelete, onClose }: {
   structure: SalaryStructure
   openRuleId: number | null
   onRuleOpened: () => void
   onEdit: () => void
   onDelete: () => void
+  onClose?: () => void
 }) {
   const { can } = useAuth()
   const canEdit = can('salary_rule.update')
@@ -283,6 +325,11 @@ function StructureDetail({ structure, openRuleId, onRuleOpened, onEdit, onDelete
                 <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setEditingRule('new')}>
                   Add rule
                 </Button>
+              ) : null}
+              {onClose ? (
+                <IconButton label="Close rules panel" onClick={onClose}>
+                  <X className="h-4 w-4" />
+                </IconButton>
               ) : null}
             </div>
           }

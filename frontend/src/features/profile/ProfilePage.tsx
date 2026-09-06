@@ -1,16 +1,15 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Monitor, Moon, Sun } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useChangeMyPassword, useMyProfile, useUpdateMyBankAccount, useUpdateMyProfile } from '@/api/hooks'
 import { ROLE_OPTIONS } from '@/api/constants'
 import { useAuth } from '@/auth/AuthProvider'
 import {
   Button, Callout, Card, CardHeader, DetailList, Field, HelpItems, HelpPopover, PageHeader,
-  SegmentedControl, Sheet, Skeleton, TextInput,
+  Sheet, Skeleton, TextInput,
 } from '@/components/ui'
 import { errorText } from '@/api/mutation'
 import { fmtDate } from '@/lib/format'
-import { readTheme, type Theme } from '@/app/theme'
 
 /**
  * What a person can change about themselves without asking anyone.
@@ -21,13 +20,7 @@ import { readTheme, type Theme } from '@/app/theme'
 export function ProfilePage() {
   const { refresh } = useAuth()
   const profile = useMyProfile()
-  const [theme, setThemeState] = React.useState<Theme>(readTheme)
   const [editingBank, setEditingBank] = React.useState(false)
-
-  const applyTheme = (next: Theme) => {
-    applyTheme(next)
-    setThemeState(next)
-  }
 
   if (profile.isLoading) {
     return <div className="space-y-4"><Skeleton className="h-24" /><Skeleton className="h-64" /></div>
@@ -125,23 +118,6 @@ export function ProfilePage() {
         </Card>
 
         <PasswordCard rule={passwordRule} />
-
-        <Card>
-          <CardHeader title="Appearance" subtitle="Applies to this browser only, not to your account." />
-          <div className="p-5">
-            <Field label="Theme">
-              <SegmentedControl
-                value={theme}
-                onChange={applyTheme}
-                options={[
-                  { value: 'light', label: <span className="flex items-center gap-1.5"><Sun className="h-3.5 w-3.5" /> Light</span> },
-                  { value: 'dark', label: <span className="flex items-center gap-1.5"><Moon className="h-3.5 w-3.5" /> Dark</span> },
-                  { value: 'system', label: <span className="flex items-center gap-1.5"><Monitor className="h-3.5 w-3.5" /> System</span> },
-                ]}
-              />
-            </Field>
-          </div>
-        </Card>
 
         <Card>
           <CardHeader title="Your access" subtitle="What your role lets you do." />

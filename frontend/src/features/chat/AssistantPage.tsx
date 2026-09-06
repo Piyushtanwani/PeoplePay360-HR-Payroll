@@ -342,19 +342,34 @@ export function AssistantPage() {
     enabled: sessionId !== null,
   })
 
+  // Sync active sessionId to localStorage
+  React.useEffect(() => {
+    try {
+      if (sessionId !== null) {
+        localStorage.setItem('pp360.active_chat_session', String(sessionId))
+      } else {
+        localStorage.removeItem('pp360.active_chat_session')
+      }
+    } catch {}
+  }, [sessionId])
+
   // Clear stale session on user switch
   React.useEffect(() => {
     setSessionId(null)
-    try { localStorage.removeItem('pp360.active_chat_session') } catch {}
+    initialSessionValidated.current = false
   }, [user?.id])
 
-  // Validate that the loaded sessionId actually belongs to this user's active sessions
+  // Validate that the loaded sessionId from localStorage on mount actually belongs to this user's active sessions
+  const initialSessionValidated = React.useRef(false)
   React.useEffect(() => {
-    if (sessionId !== null && sessions.data && !sessions.isLoading) {
-      const exists = sessions.data.some((s) => s.id === sessionId)
-      if (!exists) {
-        setSessionId(null)
-        try { localStorage.removeItem('pp360.active_chat_session') } catch {}
+    if (initialSessionValidated.current) return
+    if (!sessions.isLoading && sessions.data) {
+      initialSessionValidated.current = true
+      if (sessionId !== null) {
+        const exists = sessions.data.some((s) => s.id === sessionId)
+        if (!exists) {
+          setSessionId(null)
+        }
       }
     }
   }, [sessionId, sessions.data, sessions.isLoading])
@@ -363,45 +378,45 @@ export function AssistantPage() {
   React.useEffect(() => {
     if (messages.isError) {
       setSessionId(null)
-      try { localStorage.removeItem('pp360.active_chat_session') } catch {}
     }
   }, [messages.isError])
 
   const ensureSession = React.useCallback(async (title: string) => {
     if (sessionId !== null) {
-      const exists = (sessions.data ?? []).some((s) => s.id === sessionId)
-      if (exists) return sessionId
+      return sessionId
     }
     const created = await api.post<ChatSession>('/api/chat/sessions', { title: title.slice(0, 60) })
+    queryClient.setQueryData<ChatSession[]>(['chat', 'sessions'], (old) => [created, ...(old ?? [])])
     setSessionId(created.id)
-    try { localStorage.setItem('pp360.active_chat_session', String(created.id)) } catch {}
     return created.id
-  }, [sessionId, sessions.data])
+  }, [sessionId, queryClient])
 
   const send = useMutation({
     mutationFn: async (content: string) => {
       const id = await ensureSession(content)
       try {
-        return await api.post<ChatMessage>(`/api/chat/sessions/${id}/messages`, { content })
+        const reply = await api.post<ChatMessage>(`/api/chat/sessions/${id}/messages`, { content })
+        return { reply, targetSessionId: id }
       } catch (err) {
         // Auto-heal: If 404 chat_session, create a new session and retry once
         if (err instanceof ApiError && (err.status === 404 || err.detail?.includes('chat_session'))) {
           setSessionId(null)
-          try { localStorage.removeItem('pp360.active_chat_session') } catch {}
           const fresh = await api.post<ChatSession>('/api/chat/sessions', { title: content.slice(0, 60) })
+          queryClient.setQueryData<ChatSession[]>(['chat', 'sessions'], (old) => [fresh, ...(old ?? [])])
           setSessionId(fresh.id)
-          try { localStorage.setItem('pp360.active_chat_session', String(fresh.id)) } catch {}
           await queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] })
-          return await api.post<ChatMessage>(`/api/chat/sessions/${fresh.id}/messages`, { content })
+          const reply = await api.post<ChatMessage>(`/api/chat/sessions/${fresh.id}/messages`, { content })
+          return { reply, targetSessionId: fresh.id }
         }
         throw err
       }
     },
     // Show the question immediately; the server list catches up once the reply lands.
     onMutate: (content: string) => { setError(null); setPending(content) },
-    onSuccess: async (reply) => {
+    onSuccess: async ({ reply, targetSessionId }) => {
       setAnimateId(reply.id)
-      await queryClient.invalidateQueries({ queryKey: ['chat', 'messages'] })
+      setSessionId(targetSessionId)
+      await queryClient.invalidateQueries({ queryKey: ['chat', 'messages', targetSessionId] })
       setPending(null)
       void queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] })
     },
@@ -415,16 +430,18 @@ export function AssistantPage() {
   const editSend = useMutation({
     mutationFn: async ({ messageId, content }: { messageId: number; content: string }) => {
       const id = await ensureSession(content)
-      return await api.post<ChatMessage>(`/api/chat/sessions/${id}/messages`, { content, editMessageId: messageId })
+      const reply = await api.post<ChatMessage>(`/api/chat/sessions/${id}/messages`, { content, editMessageId: messageId })
+      return { reply, targetSessionId: id }
     },
     onMutate: ({ messageId, content }) => {
       setError(null)
       setEditingMessageId(messageId)
       setEditedPromptContent(content)
     },
-    onSuccess: async (reply, { messageId, content }) => {
+    onSuccess: async ({ reply, targetSessionId }, { messageId, content }) => {
       setAnimateId(reply.id)
-      queryClient.setQueryData<ChatMessage[]>(['chat', 'messages', sessionId], (old) => {
+      setSessionId(targetSessionId)
+      queryClient.setQueryData<ChatMessage[]>(['chat', 'messages', targetSessionId], (old) => {
         if (!old) return [reply]
         const idx = old.findIndex((m) => m.id === messageId)
         if (idx === -1) return [...old, reply]
@@ -435,7 +452,7 @@ export function AssistantPage() {
       })
       setEditingMessageId(null)
       setEditedPromptContent(null)
-      await queryClient.invalidateQueries({ queryKey: ['chat', 'messages'] })
+      await queryClient.invalidateQueries({ queryKey: ['chat', 'messages', targetSessionId] })
       void queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] })
     },
     onError: (e) => {
@@ -450,7 +467,6 @@ export function AssistantPage() {
     onSuccess: (_r, id) => {
       if (id === sessionId) {
         setSessionId(null)
-        try { localStorage.removeItem('pp360.active_chat_session') } catch {}
       }
       queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] })
     },
@@ -470,7 +486,6 @@ export function AssistantPage() {
   }
   const newChat = () => {
     setSessionId(null)
-    try { localStorage.removeItem('pp360.active_chat_session') } catch {}
     setError(null)
     setDraft('')
     setPending(null)
@@ -498,7 +513,7 @@ export function AssistantPage() {
     : isManager
     ? MANAGER_QUERIES
     : EMPLOYEE_QUERIES
-  const empty = rows.length === 0 && !send.isPending && !pending && !editSend.isPending
+  const empty = rows.length === 0 && !send.isPending && !pending && !editSend.isPending && !error
   const list = (sessions.data ?? []).filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()))
 
   return (
@@ -610,7 +625,8 @@ export function AssistantPage() {
                       key={s.prompt}
                       type="button"
                       onClick={() => send.mutate(s.prompt)}
-                      className="group flex flex-col justify-between rounded-xl border border-separator/80 bg-surface p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-accent/60 hover:bg-surface2/40 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      disabled={send.isPending || editSend.isPending}
+                      className="group flex flex-col justify-between rounded-xl border border-separator/80 bg-surface p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-accent/60 hover:bg-surface2/40 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-60"
                     >
                       <div>
                         <div className="flex items-center gap-2.5">

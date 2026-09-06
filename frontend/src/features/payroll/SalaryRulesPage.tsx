@@ -1,10 +1,10 @@
 import { useNavigate } from 'react-router-dom'
 import { ListOrdered } from 'lucide-react'
-import { useAllRules, useSetAnyRuleActive, useStructureNames } from '@/api/hooks'
+import { useAllRules, useStructureNames } from '@/api/hooks'
 import { CATEGORY_TONES, RULE_CATEGORY_OPTIONS } from '@/api/constants'
 import { useAuth } from '@/auth/AuthProvider'
 import {
-  ActiveBadge, Card, Chip, DataTable, HelpItems, HelpPopover, PageHeader, Select, Toggle, Tooltip,
+  Card, Chip, DataTable, HelpItems, HelpPopover, PageHeader, Select, Tooltip,
   type Column,
 } from '@/components/ui'
 import { moneyExact } from '@/lib/format'
@@ -27,7 +27,6 @@ export function SalaryRulesPage() {
 
   // Structure, then sequence: the order the rules actually run in.
   const table = useTableState({ defaultSort: 'structureName', defaultDir: 'asc' })
-  const switchRule = useSetAnyRuleActive()
   const list = useAllRules({
     ...table.params,
     structureId,
@@ -66,26 +65,6 @@ export function SalaryRulesPage() {
       ),
     },
     { key: 'computation', header: 'Computation', render: (r) => <span className="tnum text-sm2">{describe(r)}</span> },
-    {
-      key: 'active',
-      header: 'Status',
-      sortable: true,
-      align: 'right',
-      width: '120px',
-      tooltip: 'A rule that is off is kept but excluded from every future calculation.',
-      // Editable in place for anyone who may change structures; a read-only badge for everyone else.
-      render: (r) =>
-        can('salary_rule.update') ? (
-          <Toggle
-            checked={r.active}
-            disabled={switchRule.isPending}
-            label={`${r.name} is active`}
-            onChange={(next) => switchRule.mutate({ structureId: r.structureId, ruleId: r.id, active: next })}
-          />
-        ) : (
-          <ActiveBadge active={r.active} labels={['On', 'Off']} />
-        ),
-    },
   ]
 
   return (
