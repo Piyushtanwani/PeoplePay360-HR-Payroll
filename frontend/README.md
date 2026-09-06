@@ -1,113 +1,160 @@
-# PeoplePay360 — Frontend
+# PeoplePay360 Frontend: React 18 + TypeScript Client
 
-React 18 + TypeScript client for the PeoplePay360 HR and Payroll platform. It talks to the Spring
-Boot API on `http://localhost:8080`; start that first. The mock layer is now a test fixture only and
-no longer runs in the browser.
+A role-aware Single Page Application (SPA) built with **React 18**, **TypeScript**, **Vite**, **Tailwind CSS**, and **Radix UI** for the PeoplePay360 HR & Payroll platform.
 
-## Running it
+The client communicates with the Spring Boot backend on `http://localhost:8080` and renders domain modules tailored to the authenticated user's permissions. It features an interactive **AI Assistant** interface with in-place prompt editing, typewriter animations, and rich UI blocks (KPIs, tables, deep links, and action buttons).
+
+---
+
+## 🛠️ Technology Stack
+
+* **Framework**: React 18 + Vite
+* **Language**: TypeScript 5.x (Strict mode)
+* **Styling**: Tailwind CSS + Custom Design System Tokens (`tokens.css`)
+* **Component Primitives**: Radix UI (Dialog, DropdownMenu, Tooltip, Popover, Tabs)
+* **State & Data Fetching**: TanStack React Query v5 (caching, optimistic updates, cache invalidation)
+* **Icons**: Lucide React
+* **Charts & Analytics**: Recharts
+* **Testing**: Vitest + React Testing Library + Mock Service Worker (MSW)
+
+---
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+* **Node.js 18+** (Node.js 20+ recommended)
+* **npm 9+**
+* Running Spring Boot backend (`http://localhost:8080`)
+
+### 2. Installation & Run
 
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173
+npm run dev
 ```
 
-`npm install` must be run on your own machine — `node_modules` is not committed and native
-build tools (esbuild, rollup) are platform specific.
+Open `http://localhost:5173` in your browser. Vite automatically proxies `/api` requests to `http://localhost:8080`.
 
-Other scripts:
+---
 
-| Script | Purpose |
-|---|---|
-| `npm run dev` | Vite dev server against the API on port 8080 |
-| `npm run build` | Type-check and produce a production bundle in `dist/` |
-| `npm run preview` | Serve the production build |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Vitest suite (97 tests) |
-| `npm run lint` | ESLint, zero warnings tolerated |
-| `npm run knip` | Fails on any unused file, export or dependency |
-| `npm run verify` | Every gate above, in order |
+## 📜 Available NPM Scripts
 
-## Demo accounts
+| Script | Command | Purpose |
+|---|---|---|
+| `npm run dev` | `vite` | Starts development server on port 5173 with HMR |
+| `npm run build` | `tsc && vite build` | Validates types and compiles production bundle into `dist/` |
+| `npm run preview` | `vite preview` | Previews production build locally |
+| `npm run typecheck` | `tsc --noEmit` | Strict TypeScript compiler check without emitting output |
+| `npm run test` | `vitest run` | Runs unit and integration test suite (MSW fixtures) |
+| `npm run lint` | `eslint .` | Runs ESLint rules (zero warnings tolerated) |
+| `npm run knip` | `knip` | Detects unused files, dependencies, and exports |
+| `npm run verify` | Combined pipeline | Runs lint, knip, typecheck, and test in sequence |
 
-Pick one from the **Try as** dropdown on the login screen, or type the credentials.
+---
 
-| Email | Password | Role | Sees |
+## 👥 Demo Logins & Role-Aware Views
+
+Use the **Try as** quick-switcher on the login page or enter credentials:
+
+| Email | Password | Role | Specialized Client Views |
 |---|---|---|---|
-| `admin@peoplepay.local` | `Admin@12345` | Administrator | Everything, including Users, Audit and AI settings |
-| `payroll.manager@peoplepay.local` | `Manager@12345` | HR Payroll Manager | Can pay, override issues, edit salary structures |
-| `payroll@peoplepay.local` | `Payroll@12345` | HR Payroll User | Computes and validates payruns; cannot mark paid |
-| `hr@peoplepay.local` | `Hr@12345` | HR Manager | People and Time modules; no payroll figures |
-| `employee@peoplepay.local` | `Employee@12345` | Employee | Self-service attendance, time off and payslips only |
+| `admin@peoplepay.local` | `Admin@12345` | **Administrator** | Full access: Users & Access, AI Provider Settings, Audit Log |
+| `payroll.manager@peoplepay.local` | `Manager@12345` | **HR Payroll Manager** | Full payroll control: edit salary structures, validate, override issues, mark paid |
+| `payroll@peoplepay.local` | `Payroll@12345` | **HR Payroll User** | Computes payruns, reviews pre-flight checks; **Mark Paid** action is disabled |
+| `hr@peoplepay.local` | `Hr@12345` | **HR Manager** | People, contracts, attendance, time-off; payroll widgets are redacted |
+| `employee@peoplepay.local` | `Employee@12345` | **Employee** | Self-service dashboard: punch clock, leave requests, own payslip breakdown & AI chat |
 
-Signing in as different accounts is the fastest way to see role-aware rendering: the HR Manager
-dashboard reflows without payroll widgets, the Employee lands on a self-service attendance screen,
-and Payroll User sees a disabled **Mark paid** action.
+---
 
-## Pointing at a backend
+## 📁 Architecture & Feature Structure
 
-`VITE_API_BASE_URL` in `.env` decides where requests go, and defaults to `http://localhost:8080`.
-Leave it empty to route through the Vite proxy instead, which forwards `/api` and `/.well-known` to
-the same port. The backend allows both `localhost:5173` and `localhost:3000` as origins.
-
-## Architecture
-
+```text
+frontend/src/
+├── api/
+│   ├── client.ts             # Fetch wrapper with JWT injection & RFC 7807 error parsing
+│   ├── hooks.ts              # TanStack Query custom hooks for all REST endpoints
+│   ├── types.ts              # Strongly-typed API contracts (DTOs)
+│   └── constants.ts          # Badges, tones, and select options
+│
+├── app/
+│   ├── router.tsx            # Route definitions with lazy loading & RBAC guards
+│   ├── theme.ts              # Theme persistence and system preference sync
+│   └── shell/                # App shell: responsive sidebar, top navigation, quick actions
+│
+├── auth/
+│   ├── AuthProvider.tsx      # Auth state, login/logout, effective permission evaluation (`can()`)
+│   └── permissions.ts        # 83-permission catalogue, role implications & hierarchy
+│
+├── components/ui/            # Design-system primitives:
+│   │                         # DataTable, Card, Button, Input, Select, Modal, Sheet,
+│   │                         # KpiCard, Chip, ActiveBadge, Tooltip, PageHeader
+│
+├── design/
+│   └── tokens.css            # Apple-inspired CSS variables (colors, radii, elevations)
+│
+├── features/                 # Modular feature domains:
+│   ├── admin/                # Users, invites, AI provider settings, audit trail
+│   ├── attendance/           # Daily punch in/out, worked hours, exceptions radar
+│   ├── chat/                 # AI Assistant page, in-place prompt edit, UI blocks & markdown
+│   ├── contracts/            # Employment contracts, wage details, working schedules
+│   ├── dashboard/            # Executive KPI charts, role-filtered metrics
+│   ├── employees/            # Employee master records (Kanban, table, profile detail)
+│   ├── payroll/              # Payruns wizard, payslips, salary structures & rules
+│   ├── profile/              # User account details and preferences
+│   └── timeoff/              # Leave requests, allocations, leave types, public holidays
+│
+└── lib/                      # Date/currency formatters, search params, table state utilities
 ```
-src/
-  api/          types.ts (contract DTOs), client.ts (fetch wrapper, Problem+JSON → ApiError), hooks.ts
-  auth/         AuthProvider (token, /auth/me, can()), permissions.ts (B5 matrix + implies)
-  app/          router.tsx, theme.ts, shell/ (sidebar, top bar, ⌘K palette, notifications)
-  components/ui/ design-system primitives — Button, Card, Select, DataTable, Sheet, Toast, KpiCard …
-  design/       tokens.css — light and dark palettes as CSS variables
-  features/     one folder per module (dashboard, employees, contracts, schedules, attendance,
-                timeoff, payroll, admin, profile, chat)
-  lib/          dates, money and number formatting, table state, download helper
-  test/         Vitest setup, render helpers, and the MSW fixtures used by integration tests
+
+---
+
+## 🤖 Feature Spotlight: Conversational AI Assistant (`features/chat/`)
+
+The **AI Assistant** (`/assistant`) allows employees and managers to interrogate their records conversationally:
+
+1. **Role-Aware Query Starters**:
+   - Displays curated prompts tailored to the active user's permissions (`MANAGER_QUERIES`, `PAYROLL_MANAGER_QUERIES`, `EMPLOYEE_QUERIES`).
+   - Tapping any starter card initiates the query and smoothly transitions into the active conversation session without page refreshes.
+2. **In-Place Prompt Editing**:
+   - Hovering over a previous prompt reveals an **Edit** button (`Pencil`).
+   - Editing and saving updates the prompt directly inside its existing bubble and re-executes the turn in place, truncating any obsolete subsequent turns.
+3. **Interactive UI Blocks (`Blocks.tsx`)**:
+   - The assistant doesn't just return plain text—it emits structured UI components parsed from tool responses:
+     - **KPI Cards**: Headcount, total net paid, average wage, attendance rate.
+     - **Data Tables**: Expiring contracts, leave requests, attendance exceptions.
+     - **Direct Deep Links**: One-click navigation to employee profiles, payruns, or payslips.
+     - **Action Recommendations**: Guided next steps (e.g. resolve payrun blocker).
+4. **Natural Typewriter Animation**:
+   - Frame-timed typewriter animation smoothly reveals generated answers.
+
+---
+
+## 🎨 Feature Spotlight: Salary Structures & Rules (`features/payroll/`)
+
+1. **Salary Structures (`/payroll/salary-structures`)**:
+   - Full-width, single-column overview displaying structures, rule counts, assigned employee counts, and status.
+   - Clicking any structure row reveals an expandable bottom detail panel with tabs for **Rules** and **Assigned People**, with interactive formula inspection.
+2. **Salary Rules (`/payroll/salary-rules`)**:
+   - Cross-structure catalog listing every rule in the exact sequence it executes during payroll calculation.
+   - Detailed computation chips (`Fixed Amount`, `Percentage of Base Rule`, or `Arithmetic Formula`).
+
+---
+
+## 🧪 Testing & Validation
+
+```bash
+# Run unit tests and MSW integration suites
+npm run test
+
+# Validate full TypeScript compilation
+npm run typecheck
+
+# Check code style and formatting
+npm run lint
+
+# Audit unused exports and files
+npm run knip
 ```
 
-### Design system
-
-Apple-inspired token layer in `src/design/tokens.css`: surface/label/separator variables,
-10 px control radius, 14 px cards, 20 px sheets, tabular numerals on every figure. Dark mode
-follows `prefers-color-scheme` and can be overridden from **Profile**; the choice persists in
-`localStorage`.
-
-Every list in the application is the same `DataTable`: one toolbar, one search box, one footer that
-reads "Showing 21–40 of 143", and a required empty state that says what would be there and what to
-do about it. Paging, sorting and search are server-side and live in the address bar, so a filtered
-view is a shareable link.
-
-### Permission model
-
-`src/auth/permissions.ts` encodes the complete B5 catalogue, the role → permission seed and the
-`implies` expansion. The frontend never decides permissions on its own — it reads the effective set
-from `GET /api/auth/me` and hides or disables accordingly. Navigation groups render only when the
-user holds at least one permission inside them.
-
-### Tests
-
-`npm run test` runs 97 Vitest specs across 11 files. Most render a component with its data layer
-stubbed; `EmployeesPage.integration.test.tsx` instead runs the real hooks and the real client against
-the MSW fixtures in `src/test/msw/`, which reproduce the backend's page envelope, sorting and
-permission checks. That is what proves paging and role gating are wired rather than merely drawn.
-
-The fixture dataset is deterministic: 40 employees across four departments, five working schedules,
-three salary structures with sequenced rules, 90 days of attendance covering late, absent, overtime
-and missing-checkout, time-off types with allocations and balances, and six payruns spanning every
-lifecycle state. The handlers return the same status codes as the backend, including
-`CONTRACT_OVERLAP`, `BLOCKERS_PRESENT`, `NOT_OVERRIDABLE` and `SELF_ACTION`.
-
-## Screens
-
-Dashboard, one per role · Employees (Kanban + List + detail) · Departments · Contracts (with
-reusable templates) · Working Schedules · Attendance (check-in widget, records, exceptions, and a
-help panel explaining the classification rules) · Time Off (requests, allocations, types, holidays) ·
-Payruns (two-step wizard, lifecycle, issues, delivery, CSV export) · Payslips · Salary Structures
-(sequenced rules, dry run with a negative-net guard) · Salary Rules · Assistant · Users & Access ·
-AI Settings · Audit Log · Health · Profile.
-
-## Known gaps
-
-- Recruitment exists in the backend but has no screen in this pass.
-- The assistant answers from live records through the MCP service. Without that service running it
-  falls back to the model alone and says so in the composer.
+The MSW integration tests in `src/test/msw/` reproduce the backend's page envelopes, sorting, and permission checks, verifying that role gating and table states behave as expected without requiring a live backend.

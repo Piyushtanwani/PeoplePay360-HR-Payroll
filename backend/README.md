@@ -1,135 +1,176 @@
-# PeoplePay360 Backend
+# PeoplePay360 Backend: Spring Boot 3.3 REST API
 
-Spring Boot backend for the PeoplePay360 HR and Payroll platform. It is the single system of record and the single security authority: all business rules, payroll computation, PDF and mail, audit, and the chat gateway live here. The React frontend and the Python MCP service are thin clients.
+The Spring Boot backend is the single system of record and primary security authority for the **PeoplePay360** HR and Payroll platform. It encapsulates all core business logic: employee master records, period-specific contract matching, attendance rules, leave allocations and workflows, the sequenced salary rule engine, batch payrun execution, payslip PDF generation, SMTP delivery, immutable audit logging, and secure AI request delegation via the FastMCP Gateway.
 
-## Stack
+The React frontend and Python FastMCP service operate as authorized clients against this API.
 
-Java 21, Spring Boot 3.3, Spring Security (JWT resource server, RS256), Spring Data JPA, Flyway, PostgreSQL 16, exp4j (salary formulas), OpenHTMLtoPDF (payslip PDFs). No Lombok. Build with Maven.
+---
 
-## Prerequisites
+## 🛠️ Technology Stack
 
-- Java 21 or newer
-- Maven (the committed `mvnw` wrapper works too)
-- A running PostgreSQL 16 with a database and a role the app can use (the role needs rights to create the `btree_gist` extension, i.e. superuser in development)
-- Optional for the assistant: Ollama running locally (`ollama pull llama3.1:8b`)
+* **Language & Runtime**: Java 21 (LTS)
+* **Framework**: Spring Boot 3.3.x
+* **Persistence**: Spring Data JPA, Hibernate, PostgreSQL 16
+* **Database Migrations**: Flyway (V001–V019)
+* **Security & Auth**: Spring Security, OAuth2 Resource Server, RS256 JWT, Rate Limiting
+* **Computation Engine**: `exp4j` (dynamic mathematical and percentage salary rule formulas)
+* **Document Generation**: OpenHTMLtoPDF (high-fidelity payslip PDFs)
+* **Email Service**: Spring Boot Mail (`JavaMailSender`, STARTTLS / SSL)
+* **Build Tool**: Apache Maven
 
-## Build
+---
 
+## 🏗️ Architecture & Core Responsibilities
+
+```mermaid
+flowchart TD
+    subgraph Security ["Security & Auth Layer"]
+        AUTH["Spring Security (RS256 JWT)"]
+        RBAC["83-Permission RBAC Catalogue<br/>Fine-grained method security (@PreAuthorize)"]
+        RATE["In-Memory Rate Limiter (10 req / 15 min)"]
+    end
+
+    subgraph Core ["Domain Engines"]
+        EMP["Employee & Contract Matcher<br/>Overlapping period exclusion constraint"]
+        ATT["Attendance & Exceptions Classifier"]
+        LEAVE["Time-Off Allocation & Workflow Engine"]
+        PAY["Sequenced Salary Rule Engine<br/>Fixed, Percentage & Formula (exp4j)"]
+        RUN["Payrun Batch State Machine<br/>Draft → Computed → Validated → Paid → Sent"]
+    end
+
+    subgraph Integration ["Gateways & Delivery"]
+        PDF["OpenHTMLtoPDF Payslip Renderer"]
+        MAIL["SMTP Delivery Ledger & Async Mailer"]
+        MCP["Chat Gateway Service<br/>Mints delegated JWT (aud=mcp, 5-min TTL)<br/>HMAC X-Gateway-Secret verification"]
+    end
+
+    AUTH --> Core
+    RBAC --> Core
+    Core --> Integration
+    Integration --> DB[("PostgreSQL 16")]
 ```
-mvn clean package
+
+1. **System of Record**: All state changes pass through strict transactional domain services with optimistic locking and Flyway-managed schema constraints.
+2. **Salary Rule Engine**: Executes rule pipelines (Basic, Allowance, Gross, Deduction, Net) sequenced by order. Computation supports fixed constants, percentages of prior rules, and dynamic arithmetic formulas with `BigDecimal` rounding.
+3. **Payrun State Machine**: Two-step payrun creation wizard (scope definition then employee selection). Blocks validation if critical prerequisites (e.g., missing employee bank accounts or overlapping contracts) are unmet.
+4. **FastMCP AI Gateway**: Bridges user webchat queries to the Python FastMCP service:
+   - Verifies incoming user JWT and `chat.access` authority.
+   - Mints a short-lived, delegated JWT (`aud=mcp`, `act=chat`, 5-minute TTL) containing only the caller's specific permissions.
+   - Sends the delegated request to the FastMCP service over HTTP with a constant-time HMAC `X-Gateway-Secret`.
+   - Supports in-place prompt editing (`editMessageId` parameter) to re-evaluate and truncate subsequent chat turns in place.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+* **Java 21+**
+* **PostgreSQL 16** with a running database instance
+* **Maven 3.9+** (or use `./mvnw`)
+* **SMTP Server** (e.g. Mailpit on port `1025` for local testing)
+
+### 2. Database Initialization
+Create a dedicated database and user:
+```sql
+CREATE DATABASE peoplepay;
+CREATE USER peoplepay WITH PASSWORD 'peoplepay';
+GRANT ALL PRIVILEGES ON DATABASE peoplepay TO peoplepay;
 ```
 
-Produces `target/peoplepay360-backend.jar`.
-
-## Run
-
-Create the database, then run with matching environment variables:
-
+### 3. Configuration Setup
+Copy the configuration template:
+```bash
+cp src/main/resources/application.properties.example src/main/resources/application.properties
 ```
-createdb peoplepay
-```
+*The real `application.properties` is ignored by Git to prevent credential leaks.*
 
-```
-export DB_URL=jdbc:postgresql://127.0.0.1:5432/peoplepay
-export DB_USER=<your_role>
-export DB_PASSWORD=<your_password>
+### 4. Build & Run
+Run via Maven:
+```bash
+# Set your active profile and encryption key
 export SPRING_PROFILES_ACTIVE=demo
-export APP_ENCRYPTION_KEY=$(python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())")
 mvn spring-boot:run
 ```
 
-Or run the packaged jar directly:
-
-```
+Or package and execute the JAR:
+```bash
+mvn clean package -DskipTests
 java -jar target/peoplepay360-backend.jar
 ```
 
-Then:
+* API Base: `http://localhost:8080`
+* Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+* Health Endpoint: `http://localhost:8080/actuator/health`
 
-- API: http://localhost:8080 (Swagger UI at http://localhost:8080/swagger-ui.html)
-- Configuration lives in `src/main/resources/application.properties` and the profile files `application-demo.properties` and `application-prod.properties`; every value can be overridden by the environment variables in `.env.example`.
+---
 
-Notes:
-- If `APP_ENCRYPTION_KEY` is empty in the demo profile, a fixed development key is derived and a warning is logged. Set a real base64-encoded 32-byte key in production.
-- The RS256 signing key is generated on first start and cached at `./keys/jwt.pem`.
-- `/actuator/health` reports DOWN when no SMTP server is reachable; this does not affect the API. Point `MAIL_HOST`/`MAIL_PORT` at a mail server to clear it.
+## 👥 Seeded Demo Accounts (`demo` Profile)
 
-## Demo accounts (demo profile, seeded on first start)
+On first run with `SPRING_PROFILES_ACTIVE=demo`, Flyway seeds 40 employees, 4 departments, schedules, contracts, attendance records, time-off allocations, and historical payruns (May to July 2026):
 
-| Email | Password | Role |
+| Email | Password | Role | Permissions Scope |
+|---|---|---|---|
+| `admin@peoplepay.local` | `Admin@12345` | **Admin** | Full system administration, AI settings, audit log, user invites |
+| `payroll.manager@peoplepay.local` | `Manager@12345` | **HR Payroll Manager** | Full payroll lifecycle: configure salary rules, validate & mark paid |
+| `payroll@peoplepay.local` | `Payroll@12345` | **HR Payroll User** | Compute and review payruns; view payslips; cannot mark paid |
+| `hr@peoplepay.local` | `Hr@12345` | **HR Manager** | People, contracts, attendance, time-off; payroll figures redacted |
+| `employee@peoplepay.local` | `Employee@12345` | **Employee** | Self-service attendance check-in, leave requests, own payslips & chat |
+
+---
+
+## 📡 REST API Modules
+
+| Endpoint Base | Authority | Description |
 |---|---|---|
-| admin@peoplepay.local | Admin@12345 | Admin |
-| hr@peoplepay.local | Hr@12345 | HR Manager |
-| payroll@peoplepay.local | Payroll@12345 | HR Payroll User |
-| payroll.manager@peoplepay.local | Manager@12345 | HR Payroll Manager |
-| employee@peoplepay.local | Employee@12345 | Employee (granted chat.access) |
+| `POST /api/auth/login` | Public | Authenticates credentials, returns RS256 JWT access token |
+| `GET /api/auth/me` | `authenticated` | Returns user identity and effective permission set |
+| `GET /api/employees` | `employee.read.all` / `.own` | Employee master records with department, manager, and contract links |
+| `GET /api/contracts` | `contract.read.all` / `.own` | Employment contracts with wage, working schedule, and dates |
+| `POST /api/attendance/check-in` | `attendance.record.own` | Daily check-in timestamp recording |
+| `POST /api/attendance/check-out` | `attendance.record.own` | Daily check-out and automatic worked hours calculation |
+| `GET /api/attendance/exceptions` | `attendance.read.all` | Exception radar: missing check-outs, late arrivals, absences |
+| `GET /api/timeoff/balances` | `timeoff_allocation.read.own` | Leave balances (allocated, taken, pending, remaining) |
+| `POST /api/timeoff/requests` | `timeoff_request.create.own` | Submit leave requests with approval workflow |
+| `GET /api/salary-structures` | `salary_structure.read` | Salary structures and sequenced rule definitions |
+| `GET /api/salary-rules` | `salary_rule.read` | All salary rules across structures with formulas and categories |
+| `POST /api/payruns` | `payrun.create` | 2-step payrun creation wizard |
+| `POST /api/payruns/{id}/compute` | `payrun.compute` | Batch computation of payslips across chosen employees |
+| `POST /api/payruns/{id}/validate` | `payrun.validate` | Validates payrun; checks for blocking issues |
+| `POST /api/payruns/{id}/pay` | `payrun.pay` | Marks payrun paid; triggers payslip immutability constraint |
+| `POST /api/payruns/{id}/email` | `payrun.email` | Bulk async payslip PDF generation and SMTP delivery |
+| `GET /api/reports/dashboard` | `dashboard.read.hr` | Live KPIs with role-based server-side redaction |
+| `GET /api/chat/sessions` | `chat.access` | Lists caller's conversation sessions |
+| `POST /api/chat/sessions` | `chat.access` | Creates a new chat session |
+| `POST /api/chat/sessions/{id}/messages` | `chat.access` | Sends prompt (or edits prompt via `editMessageId`) via FastMCP Gateway |
+| `GET /api/chat/capabilities` | `chat.access` | Discovers available AI provider status and active MCP tools |
 
-The seed also creates 40 employees across four departments, the "Standard Monthly" salary structure, running contracts, leave types and holidays, Sam Patel's leave scenario, a Warehouse Supervisor opening with three candidates, and three paid historical payruns (May to July 2026) computed through the real rule engine.
+---
 
-## Quick check
+## 🧪 Testing & Verification
 
-```
-curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"admin@peoplepay.local","password":"Admin@12345"}'
-```
+```bash
+# Run 59 fast unit tests (no database required)
+mvn test
 
-Use the returned `accessToken` as `Authorization: Bearer <token>` for all other endpoints. The full endpoint list is in the OpenAPI document at `/v3/api-docs`.
-
-## What is implemented and verified
-
-Verified end to end against PostgreSQL 16:
-
-- Authentication, `/api/auth/me` with the effective permission set, and role-based access control on every endpoint.
-- The permission catalogue (83 permissions), five seeded roles, per-user grants, and the grant policy.
-- Employees, departments, bank accounts (AES-GCM encrypted, masked, audited unmask), working schedules (auto-computed weekly hours), contracts (period overlap prevented by a database exclusion constraint).
-- Attendance (check-in/out, corrections with the self-action guard) and time off (allocations, requests, the NEEDS_ATTENTION rule, allocation approval re-evaluating requests, balances).
-- The salary rule engine: sequenced rules with fixed, percentage and formula computation in BigDecimal. Example net for a 50,000 wage: Basic 50,000, HRA 10,000, Transport 1,000, Gross 61,000, PF 6,000, Tax 3,600, Net 51,400.
-- The two-step payrun wizard, the pre-validation gate (validate refused with a blocker present, overridable and non-overridable checks), and the state machine Draft to Computed to Validated to Paid to Sent.
-- Payslip PDF rendering and asynchronous email with a delivery ledger.
-- The live dashboard with server-side redaction (HR Manager receives no payroll figures).
-- The chat gateway (mints a per-message delegated token, calls the MCP service, degrades to 503 when the MCP service is down) and AI profile administration.
-- Recruitment with the five-stage pipeline and deterministic candidate scoring.
-
-## Package structure
-
-Layered packages under `com.peoplepay360`:
-
-- `model` — JPA entities
-- `repository` — Spring Data and custom repositories
-- `dto` — request and response records
-- `service` — business logic (payroll engine, guards-adjacent domain services, gateways)
-- `controller` — REST controllers
-- `security` — JWT, RBAC, filters and guards
-- `config`, `common` — configuration and cross-cutting infrastructure (audit, errors, encryption)
-
-## Tests
-
-```
-mvn test              # 59 fast tests, no database required
-mvn verify -Pit       # adds 43 integration tests against PostgreSQL
+# Run full integration suite against PostgreSQL (43 integration tests)
+mvn verify -Pit
 ```
 
-`mvn test` runs the fast suite: unit tests for the rule engine, formula engine, schedule maths,
-attendance classification, contract resolver, grant policy, leave balances, candidate scoring, the
-paging normaliser, the password policy, rule categories and the audit writer, plus five ArchUnit
-rules that forbid a controller reaching a repository directly and forbid printing to standard out.
-No database is needed, so it runs anywhere.
+* **Unit Tests**: Rule engine arithmetic, formula parser, schedule calculations, attendance classification, grant policy, password complexity, and 5 ArchUnit architecture constraint rules.
+* **Integration Tests**: End-to-end authentication, RBAC authorization matrix, IDOR security, payrun wizard pre-validation, payslip immutability triggers, and chat gateway fallback.
 
-`mvn verify -Pit` adds the integration suite against PostgreSQL, covering login, the RBAC matrix,
-IDOR protection, the payrun wizard and its pre-validation gate, override, validate and pay, leave
-approval, dashboard redaction, the pagination contract including a 400 on an unknown sort field, and
-the assistant's fallback when the MCP service is unreachable.
+---
 
-The integration suite points at a **throwaway** database, because it runs `flyway.clean()` before
-every run. It defaults to `peoplepay_test` on localhost; override the URL, username and password
-through `IT_DB_URL`, `IT_DB_USERNAME` and `IT_DB_PASSWORD`, or put them in a git-ignored
-`backend/.env.it.properties`. Never point it at the development database.
+## 📁 Package Organization
 
-Because of the login rate limit, allow a backend restart between consecutive full runs.
-
-## Known gaps in this build
-
-- Historical payruns are produced by `SeedPayrunRunner` using the real rule engine directly rather than through the `PayrunService` HTTP flow, to avoid needing a security context during seeding.
-- The integration tests use a local PostgreSQL rather than Testcontainers, because Docker is not assumed to be present in this environment.
-- Recruitment endpoints exist and are tested, but no screen opens them.
-- Mail health is excluded from `/actuator/health`: an unreachable relay is an operational warning, not a reason for an orchestrator to restart a working application. The admin health page probes SMTP separately and reports it there.
+```text
+backend/src/main/java/com/peoplepay360/
+├── common/             # Global error handlers, audit logging, AES-GCM converters
+├── config/             # SecurityFilterChain, JWT RS256, CORS, ApplicationProperties
+├── controller/         # Spring MVC REST controllers
+├── dto/                # Immutable Java records for request & response contracts
+├── model/              # Hibernate JPA domain entities
+├── repository/         # Spring Data JPA repositories with query specifications
+├── security/           # JWT authentication filter, RBAC evaluators, rate limiting
+└── service/            # Domain services, rule engine, PDF renderer, mailer, ChatGatewayService
+```
